@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0d1a" />
+  <title>Teacher OS | הוסף תלמיד</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    :root{--bg:#0d0d1a;--card:#161628;--card2:#1e1e35;--accent:#7c3aed;--accent2:#a78bfa;--text:#f8fafc;--muted:#9a9ab5;--border:#2a2a45;--green:#10b981;--danger:#ef4444}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:radial-gradient(circle at 50% -10%,#2c1756 0,#171125 28%,var(--bg) 60%);color:var(--text);min-height:100vh;min-height:100dvh;padding:20px 16px calc(20px + env(safe-area-inset-bottom))}
+    .shell{max-width:430px;margin:0 auto}
+    .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .back{color:var(--accent2);background:none;border:none;font-size:14px;cursor:pointer;padding:6px 0}
+    h1{font-size:21px}
+    .card{background:rgba(22,22,40,.95);border:1px solid var(--border);border-radius:20px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.28)}
+    .sub{color:var(--muted);font-size:13px;line-height:1.6;margin-bottom:18px}
+    label{display:block;font-size:12px;color:var(--muted);margin:0 3px 7px}
+    input{width:100%;background:var(--card2);border:1px solid var(--border);border-radius:13px;padding:14px 15px;color:var(--text);font-size:16px;outline:none;margin-bottom:13px}
+    input:focus{border-color:var(--accent2)}
+    .btn{width:100%;border:none;border-radius:13px;padding:14px 16px;font-weight:750;cursor:pointer;margin-bottom:10px}
+    .btn:active{transform:scale(.985)}.btn:disabled{opacity:.55;cursor:wait}
+    .primary{background:linear-gradient(135deg,var(--accent),#5b21b6);color:#fff}
+    .outline{background:transparent;border:1px solid var(--border);color:var(--text)}
+    .message{display:none;border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5;margin-bottom:14px}
+    .message.show{display:block}.error{background:#2b1116;border:1px solid #6f2430;color:#fecdd3}
+    .result{display:none}
+    .result.show{display:block}
+    .result-row{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .result-row .lbl{font-size:11px;color:var(--muted)}
+    .result-row .val{font-size:15px;font-weight:650;direction:ltr;text-align:left;word-break:break-all}
+    .copy-btn{background:none;border:1px solid var(--border);color:var(--accent2);border-radius:9px;padding:6px 10px;font-size:12px;cursor:pointer;flex:none}
+    .warn{background:#2b2211;border:1px solid #6f5a24;color:#fde68a;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.6;margin-bottom:16px}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="topbar">
+      <button class="back" onclick="window.location.href='./teacher-students.html'">→ חזרה</button>
+      <h1>הוסף תלמיד</h1>
+      <span style="width:52px"></span>
+    </div>
+
+    <div class="card">
+      <div id="form-step">
+        <div class="sub">הזן שם פרטי ושם משפחה בלבד. שם המשתמש והסיסמה הזמנית ייווצרו אוטומטית.</div>
+        <label for="first-name">שם פרטי</label>
+        <input id="first-name" type="text" autocomplete="off" placeholder="לאה" />
+        <label for="last-name">שם משפחה</label>
+        <input id="last-name" type="text" autocomplete="off" placeholder="אלגזי" />
+        <div class="message" id="form-message"></div>
+        <button class="btn primary" id="create-btn">צור תלמיד</button>
+      </div>
+
+      <div id="result-step" class="result">
+        <div class="warn">⚠️ הפרטים האלה יוצגו <strong>פעם אחת בלבד</strong>. שמור/העתק אותם עכשיו לפני שתצא מהמסך.</div>
+        <div class="result-row"><div><div class="lbl">שם התלמיד</div><div class="val" id="r-name" style="direction:rtl;text-align:right"></div></div></div>
+        <div class="result-row"><div><div class="lbl">שם משתמש</div><div class="val" id="r-username"></div></div><button class="copy-btn" data-copy="r-username">העתק</button></div>
+        <div class="result-row"><div><div class="lbl">סיסמה זמנית</div><div class="val" id="r-password"></div></div><button class="copy-btn" data-copy="r-password">העתק</button></div>
+        <button class="btn outline" onclick="window.location.href='./teacher-students.html'">חזרה לרשימת התלמידים</button>
+        <button class="btn primary" id="add-another">הוסף תלמיד נוסף</button>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-functions.js";
+    import { auth, app, REDIRECTS } from "./firebase-config.js";
+    import { requireRole, setBusy } from "./auth-shared.js";
+
+    const functions = getFunctions(app);
+    const createStudentFn = httpsCallable(functions, 'createStudent');
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) { window.location.href = REDIRECTS.login; return; }
+      try { await requireRole(user, ['teacher']); }
+      catch (e) { window.location.href = REDIRECTS.login; }
+    });
+
+    function showMessage(text) {
+      const el = document.getElementById('form-message');
+      el.textContent = text; el.className = 'message show error';
+    }
+
+    document.getElementById('create-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('create-btn');
+      const firstName = document.getElementById('first-name').value.trim();
+      const lastName = document.getElementById('last-name').value.trim();
+      if (!firstName || !lastName) { showMessage('יש להזין שם פרטי ושם משפחה.'); return; }
+
+      try {
+        setBusy(btn, true, 'יוצר תלמיד...');
+        const res = await createStudentFn({ firstName, lastName });
+        const { displayName, username, temporaryPassword } = res.data;
+        document.getElementById('r-name').textContent = displayName;
+        document.getElementById('r-username').textContent = username;
+        document.getElementById('r-password').textContent = temporaryPassword;
+        document.getElementById('form-step').style.display = 'none';
+        document.getElementById('result-step').classList.add('show');
+      } catch (error) {
+        showMessage(friendlyFunctionError(error));
+      } finally {
+        setBusy(btn, false);
+      }
+    });
+
+    document.getElementById('add-another').addEventListener('click', () => {
+      document.getElementById('first-name').value = '';
+      document.getElementById('last-name').value = '';
+      document.getElementById('form-step').style.display = 'block';
+      document.getElementById('result-step').classList.remove('show');
+    });
+
+    document.querySelectorAll('[data-copy]').forEach(btn => btn.addEventListener('click', async () => {
+      const text = document.getElementById(btn.dataset.copy).textContent;
+      try { await navigator.clipboard.writeText(text); btn.textContent = 'הועתק ✓'; setTimeout(() => btn.textContent = 'העתק', 1500); }
+      catch (e) { /* לא נורא אם ההעתקה נכשלת - הטקסט עדיין גלוי במסך */ }
+    }));
+
+    function friendlyFunctionError(error) {
+      const code = error?.code || '';
+      if (code.includes('resource-exhausted')) return 'הגעת למכסת התלמידים המקסימלית בתוכנית שלך.';
+      if (code.includes('permission-denied')) return 'אין לך הרשאה ליצור תלמיד.';
+      if (code.includes('unauthenticated')) return 'יש להתחבר מחדש.';
+      if (code.includes('not-found') || code.includes('internal') || code.includes('unavailable')) return 'הפונקציה עדיין לא זמינה בענן (ייתכן שהפרויקט טרם שודרג לתוכנית Blaze).';
+      return error?.message || 'יצירת התלמיד נכשלה, נסה שוב.';
+    }
+  </script>
+</body>
+</html>
