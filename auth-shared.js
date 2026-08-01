@@ -4,8 +4,16 @@ import { auth, db } from "./firebase-config.js";
 
 // טוען את מסמך users/{uid} של המשתמש המחובר. מחזיר null אם אינו קיים.
 export async function getOwnProfile(uid) {
-  const snap = await getDoc(doc(db, 'users', uid));
-  return snap.exists() ? snap.data() : null;
+  console.log('[auth-debug] checking profile for uid:', uid);
+  try {
+    const snap = await getDoc(doc(db, 'users', uid));
+    console.log('[auth-debug] exists:', snap.exists());
+    if (snap.exists()) console.log('[auth-debug] data:', snap.data());
+    return snap.exists() ? snap.data() : null;
+  } catch (err) {
+    console.error('[auth-debug] getDoc threw an error:', err.code, err.message);
+    throw err;
+  }
 }
 
 // מוודא שהמשתמש קיים, פעיל, ומה-role שלו נמצא ברשימת התפקידים המותרים.
