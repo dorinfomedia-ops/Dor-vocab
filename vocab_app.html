@@ -3,18 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>מילים של דור</title>
+<title>מילים שלי</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 :root{--bg:#0d0d1a;--card:#161628;--card2:#1e1e35;--accent:#7c3aed;--accent2:#a78bfa;--green:#10b981;--red:#ef4444;--yellow:#f59e0b;--text:#f1f5f9;--muted:#8b8baa;--border:#2a2a45;--radius:16px}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:75px}
+#auth-gate{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:999;color:var(--muted);font-size:14px}
 .nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--border);z-index:200}
 .nav-btn{flex:1;padding:10px 4px 8px;border:none;background:none;color:var(--muted);font-size:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:3px;border-top:2px solid transparent}
 .nav-btn.active{color:var(--accent2);border-top-color:var(--accent2)}
 .nav-btn .ico{font-size:22px}
 .page{display:none;padding:16px;max-width:500px;margin:0 auto}
 .page.active{display:block}
-.ph{padding:20px 0 8px}.ph h2{font-size:22px;font-weight:700}.ph p{color:var(--muted);font-size:13px;margin-top:4px}
+.ph{padding:20px 0 8px;display:flex;justify-content:space-between;align-items:flex-start}
+.ph h2{font-size:22px;font-weight:700}.ph p{color:var(--muted);font-size:13px;margin-top:4px}
+.logout-link{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:4px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:14px}
 .btn{display:block;width:100%;padding:14px;border-radius:12px;border:none;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:8px;text-align:center;transition:transform .1s}
 .btn:active{transform:scale(.97)}
@@ -60,9 +63,14 @@ input[type=text]:focus{border-color:var(--accent2)}input:disabled{opacity:.6}
 </style>
 </head>
 <body>
+<div id="auth-gate">בודק הרשאות...</div>
+
 <div class="page active" id="page-practice">
   <div id="prac-home">
-    <div class="ph"><h2>שלום דור 👋</h2><p>בחר סוג תרגיל</p></div>
+    <div class="ph">
+      <div><h2 id="greeting">שלום 👋</h2><p>בחר סוג תרגיל</p></div>
+      <button class="logout-link" id="logout-btn">התנתקות</button>
+    </div>
     <div class="sync-bar"><div class="sdot spin" id="sdot"></div><span id="stxt">מתחבר לענן...</span></div>
     <div class="mgrid">
       <div class="mcard" onclick="startMode('mc-he-en')"><div class="mi">🇮🇱→🇺🇸</div><div class="mt">בחר מילה</div><div class="ms">עברית → אנגלית</div></div>
@@ -145,53 +153,52 @@ input[type=text]:focus{border-color:var(--accent2)}input:disabled{opacity:.6}
   <button class="nav-btn" id="nav-dashboard" onclick="showPage('dashboard')"><span class="ico">📊</span>התקדמות</button>
   <button class="nav-btn" id="nav-words" onclick="showPage('words')"><span class="ico">📚</span>מילים</button>
 </nav>
+
 <script type="module">
-import{initializeApp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import{getFirestore,collection,getDocs,setDoc,deleteDoc,doc,addDoc,onSnapshot,serverTimestamp}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{collection,getDocs,setDoc,deleteDoc,doc,addDoc,onSnapshot,serverTimestamp,query,orderBy}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import{onAuthStateChanged,signOut}from"https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import{auth,db,REDIRECTS}from"./firebase-config.js";
+import{requireRole}from"./auth-shared.js";
 
-const FC={
-  apiKey:"AIzaSyBmPR5vQ2XqkC8JflLGaUSHG4VfcwZmFvI",
-  authDomain:"dor-vocab-app.firebaseapp.com",
-  projectId:"dor-vocab-app",
-  storageBucket:"dor-vocab-app.appspot.com",
-  messagingSenderId:"135982972975",
-  appId:"1:135982972975:web:829e24cf8de3a50d0086da"
-};
-const app=initializeApp(FC);
-const db=getFirestore(app);
-
-const DW=[
-  {en:"positive",he:"חיובי"},{en:"public company",he:"חברה ציבורית"},
-  {en:"digital department",he:"מחלקת דיגיטלית"},{en:"digital division",he:"חטיבת דיגיטלית"},
-  {en:"Healthcare services company",he:"חברת שירותי בריאות"},{en:"division",he:"חלוקה"},
-  {en:"subscription",he:"מנוי"},{en:"doctor's visits",he:"ביקורי רופא"},
-  {en:"clinic",he:"מרפאה"},{en:"increase",he:"לגדול"},
-  {en:"I represent the digital division at Novalog",he:"אני מייצג את חטיבת הדיגיטל בנובלוג"},
-  {en:"present",he:"להציג"},{en:"represents",he:"מייצג"},
-  {en:"representing",he:"מייצג (מצב זמני)"},{en:"Sunday",he:"ראשון"},
-  {en:"Monday",he:"שני"},{en:"Tuesday",he:"שלישי"},
-  {en:"Wednesday",he:"רביעי"},{en:"Thursday",he:"חמישי"},
-  {en:"Friday",he:"שישי"},{en:"Saturday",he:"שבת"},
-  {en:"therapeutic",he:"רפואי"},{en:"process",he:"תהליך"},
-  {en:"provide",he:"לספק / לתת"},{en:"industry",he:"תעשייה"},
-  {en:"through",he:"דרך"},{en:"suitable",he:"מתאים"}
-];
-
+let uid=null; // מזהה התלמיד המחובר - כל הנתונים ממוענים לפי זה
 let words=[],str={},sCorrect=0,sTotal=0,todayCnt=0;
 const t0=Date.now();
 let sessionStartTime=Date.now();
+let streak=1;
 
-// Streak
-let streak=parseInt(localStorage.getItem('dor_s')||'1');
-let lastD=localStorage.getItem('dor_d')||'';
-const todayS=new Date().toDateString();
-if(lastD!==todayS){
-  const yest=new Date(Date.now()-86400000).toDateString();
-  streak=(lastD===yest)?streak+1:1;
-  localStorage.setItem('dor_s',streak);
-  localStorage.setItem('dor_d',todayS);
+// --- שער כניסה: האפליקציה הזו טעונה רק למי שמחובר ומאושר כתלמיד ---
+onAuthStateChanged(auth,async(user)=>{
+  if(!user){ window.location.href=REDIRECTS.login; return; }
+  let profile;
+  try{ profile=await requireRole(user,['student']); }
+  catch(e){ window.location.href=REDIRECTS.login; return; }
+
+  uid=user.uid;
+  document.getElementById('greeting').textContent=`שלום ${profile.firstName||profile.displayName||''} 👋`;
+  document.getElementById('auth-gate').style.display='none';
+  initStreak();
+  initApp();
+});
+
+document.getElementById('logout-btn').addEventListener('click',async()=>{
+  await signOut(auth);
+  window.location.href=REDIRECTS.login;
+});
+
+// Streak - נשמר מקומית, ממוען למזהה התלמיד כדי לא להתערבב בין חשבונות באותו דפדפן
+function initStreak(){
+  const sKey='streak_'+uid, dKey='streakDate_'+uid;
+  streak=parseInt(localStorage.getItem(sKey)||'1');
+  const lastD=localStorage.getItem(dKey)||'';
+  const todayS=new Date().toDateString();
+  if(lastD!==todayS){
+    const yest=new Date(Date.now()-86400000).toDateString();
+    streak=(lastD===yest)?streak+1:1;
+    localStorage.setItem(sKey,streak);
+    localStorage.setItem(dKey,todayS);
+  }
+  str=JSON.parse(localStorage.getItem('strengthCache_'+uid)||'{}');
 }
-str=JSON.parse(localStorage.getItem('dor_str')||'{}');
 
 // Sync status
 function setSS(state,text){
@@ -201,11 +208,14 @@ function setSS(state,text){
   t.textContent=text;
 }
 
-// Record session start in Firebase
+function wordsCol(){ return collection(db,'users',uid,'words'); }
+function strengthCol(){ return collection(db,'users',uid,'strength'); }
+function sessionsCol(){ return collection(db,'users',uid,'sessions'); }
+
 async function recordSessionStart(){
   sessionStartTime=Date.now();
   try{
-    await addDoc(collection(db,'sessions'),{
+    await addDoc(sessionsCol(),{
       type:'start',
       timestamp:serverTimestamp(),
       date:new Date().toLocaleDateString('he-IL')
@@ -213,16 +223,14 @@ async function recordSessionStart(){
   }catch(e){}
 }
 
-// Record session end in Firebase
 async function recordSessionEnd(correct,total,mode){
   const duration=Math.round((Date.now()-sessionStartTime)/1000);
   try{
-    await addDoc(collection(db,'sessions'),{
+    await addDoc(sessionsCol(),{
       type:'session',
       correct,total,
       pct:total>0?Math.round(correct/total*100):0,
-      mode,
-      duration,
+      mode,duration,
       timestamp:serverTimestamp(),
       date:new Date().toLocaleDateString('he-IL'),
       dateStr:new Date().toDateString()
@@ -230,12 +238,11 @@ async function recordSessionEnd(correct,total,mode){
   }catch(e){}
 }
 
-// Record daily usage
 async function recordDailyUsage(){
   const todayKey=new Date().toISOString().split('T')[0];
   const minutes=Math.round((Date.now()-t0)/60000);
   try{
-    await setDoc(doc(db,'usage',todayKey),{
+    await setDoc(doc(db,'users',uid,'usage',todayKey),{
       date:todayKey,
       dateHe:new Date().toLocaleDateString('he-IL'),
       totalMinutes:minutes,
@@ -245,55 +252,41 @@ async function recordDailyUsage(){
   }catch(e){}
 }
 
-// Save word strength to Firebase
 async function saveStrength(en,val){
   str[en]=val;
-  localStorage.setItem('dor_str',JSON.stringify(str));
+  localStorage.setItem('strengthCache_'+uid,JSON.stringify(str));
   try{
     const id=en.replace(/[^a-zA-Z0-9]/g,'_').slice(0,50);
-    await setDoc(doc(db,'strength',id),{en,strength:val,updated:serverTimestamp()},{merge:true});
+    await setDoc(doc(db,'users',uid,'strength',id),{en,strength:val,updated:serverTimestamp()},{merge:true});
   }catch(e){}
 }
 
-// Load words from Firebase
-const wordsCol=collection(db,'words');
-onSnapshot(wordsCol,async(snap)=>{
-  if(snap.size < 10){
-    setSS('spin','מעלה מילים ראשונות...');
-    for(const w of DW){
-      const id=w.en.replace(/[^a-zA-Z0-9]/g,'_').slice(0,80);
-      await setDoc(doc(db,'words',id),w);
-    }
-  } else {
+function initApp(){
+  onSnapshot(wordsCol(),(snap)=>{
     words=snap.docs.map(d=>d.data());
     words.forEach(w=>{if(str[w.en]===undefined)str[w.en]=1;});
-    setSS('ok','✅ מסונכרן — '+words.length+' מילים');
+    setSS('ok', words.length ? ('✅ מסונכרן — '+words.length+' מילים') : 'עוד אין מילים - הוסף מילים בלשונית "מילים"');
     renderWords();
     renderStreak();
     const cp=document.querySelector('.page.active').id.replace('page-','');
     if(cp==='dashboard')renderDash();
     if(cp==='flashcards')initFC();
-  }
-},(e)=>{
-  setSS('err','⚠️ עובד ללא ענן');
-  words=[...DW];
-  renderWords();renderStreak();
-});
+  },(e)=>{
+    setSS('err','⚠️ שגיאת חיבור לענן');
+  });
 
-// Load strength from Firebase on start
-async function loadStrength(){
-  try{
-    const snap=await getDocs(collection(db,'strength'));
-    snap.forEach(d=>{const data=d.data();str[data.en]=data.strength;});
-    localStorage.setItem('dor_str',JSON.stringify(str));
-  }catch(e){}
+  (async()=>{
+    try{
+      const snap=await getDocs(strengthCol());
+      snap.forEach(d=>{const data=d.data();str[data.en]=data.strength;});
+      localStorage.setItem('strengthCache_'+uid,JSON.stringify(str));
+    }catch(e){}
+  })();
+
+  recordSessionStart();
+  setInterval(recordDailyUsage,120000);
+  window.addEventListener('beforeunload',recordDailyUsage);
 }
-loadStrength();
-recordSessionStart();
-
-// Save usage every 2 minutes
-setInterval(recordDailyUsage,120000);
-window.addEventListener('beforeunload',recordDailyUsage);
 
 // NAV
 window.showPage=function(id){
@@ -329,7 +322,7 @@ function speak(text){
 // PRACTICE
 let mode='',sWords=[],sIdx=0,cur=null,answered=false;
 window.startMode=function(m){
-  if(words.length<4){alert('צריך לפחות 4 מילים!');return;}
+  if(words.length<4){alert('צריך לפחות 4 מילים! לך ללשונית "מילים" והוסף עוד.');return;}
   mode=m;sWords=shuffle([...words]).slice(0,Math.min(10,words.length));
   sIdx=0;sCorrect=0;sTotal=0;answered=false;
   document.getElementById('prac-home').style.display='none';
@@ -461,9 +454,8 @@ async function renderDash(){
   document.getElementById('d-today').textContent=todayCnt;
   document.getElementById('d-pct').textContent=sTotal>0?Math.round(sCorrect/sTotal*100)+'%':'—';
 
-  // Load sessions history
   try{
-    const snap=await getDocs(collection(db,'sessions'));
+    const snap=await getDocs(sessionsCol());
     const sessions=snap.docs.map(d=>d.data()).filter(d=>d.type==='session').sort((a,b)=>(b.timestamp?.seconds||0)-(a.timestamp?.seconds||0)).slice(0,5);
     const hist=document.getElementById('hist-list');
     if(sessions.length===0){hist.innerHTML='<div style="color:var(--muted);font-size:13px">עוד אין היסטוריה — התחל לתרגל!</div>';}
@@ -479,7 +471,6 @@ async function renderDash(){
     }
   }catch(e){document.getElementById('hist-list').innerHTML='<div style="color:var(--muted);font-size:13px">לא ניתן לטעון היסטוריה</div>';}
 
-  // Word strength
   const weak=words.filter(w=>str[w.en]===0);
   const mid=words.filter(w=>(str[w.en]||1)===1);
   const strong=words.filter(w=>str[w.en]===2);
@@ -505,7 +496,7 @@ window.addWord=async function(){
   if(!en||!he){alert('יש למלא גם אנגלית וגם עברית');return;}
   if(words.find(w=>w.en.toLowerCase()===en.toLowerCase())){alert('המילה כבר קיימת!');return;}
   const id=en.replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)+'_'+Date.now();
-  await setDoc(doc(db,'words',id),{en,he});
+  await setDoc(doc(db,'users',uid,'words',id),{en,he});
   document.getElementById('new-en').value='';
   document.getElementById('new-he').value='';
   const msg=document.getElementById('add-msg');
@@ -513,8 +504,8 @@ window.addWord=async function(){
 };
 window.deleteWord=async function(en){
   if(!confirm('למחוק "'+en+'"?'))return;
-  const snap=await getDocs(wordsCol);
-  for(const d of snap.docs){if(d.data().en===en)await deleteDoc(doc(db,'words',d.id));}
+  const snap=await getDocs(wordsCol());
+  for(const d of snap.docs){if(d.data().en===en)await deleteDoc(doc(db,'users',uid,'words',d.id));}
 };
 function renderWords(){
   document.getElementById('words-count').textContent=words.length+' מילים ברשימה';
