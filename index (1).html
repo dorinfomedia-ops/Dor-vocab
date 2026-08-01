@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0d1a" />
+  <title>Teacher OS | התחברות</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    :root{
+      --bg:#0d0d1a;--card:#161628;--card2:#1e1e35;--accent:#7c3aed;
+      --accent2:#a78bfa;--text:#f8fafc;--muted:#9a9ab5;--border:#2a2a45;
+      --danger:#ef4444;--success:#10b981;--radius:18px
+    }
+    body{
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+      background:radial-gradient(circle at 50% -10%,#2c1756 0,#171125 28%,var(--bg) 60%);
+      color:var(--text);min-height:100vh;min-height:100dvh;display:flex;align-items:center;
+      justify-content:center;padding:24px 18px calc(24px + env(safe-area-inset-bottom))
+    }
+    button,input{font:inherit}.shell{width:100%;max-width:430px}.brand{text-align:center;margin-bottom:24px}
+    .logo{width:66px;height:66px;margin:0 auto 14px;border-radius:21px;background:linear-gradient(135deg,var(--accent),#4f46e5);display:grid;place-items:center;font-size:31px;box-shadow:0 18px 50px rgba(124,58,237,.35)}
+    h1{font-size:30px;letter-spacing:-.7px}.tag{color:var(--muted);font-size:14px;margin-top:7px}
+    .card{background:rgba(22,22,40,.95);border:1px solid var(--border);border-radius:24px;padding:22px;box-shadow:0 25px 70px rgba(0,0,0,.32);backdrop-filter:blur(16px)}
+    .step{display:none}.step.active{display:block;animation:fade .18s ease}@keyframes fade{from{opacity:.35;transform:translateY(4px)}to{opacity:1;transform:none}}
+    .title{font-size:21px;font-weight:800;margin-bottom:7px}.sub{font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:19px}
+    .role{width:100%;display:flex;align-items:center;gap:15px;text-align:right;background:var(--card2);color:var(--text);border:1px solid var(--border);border-radius:16px;padding:17px;margin-bottom:11px;cursor:pointer;transition:.15s}
+    .role:hover{border-color:var(--accent2);transform:translateY(-1px)}.role:active{transform:scale(.985)}
+    .role-icon{width:48px;height:48px;display:grid;place-items:center;border-radius:14px;background:#282042;font-size:25px;flex:none}
+    .role-copy{min-width:0}.role-main{font-size:16px;font-weight:750}.role-sub{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.35}.arrow{margin-right:auto;color:var(--accent2);font-size:22px}
+    .back{background:none;border:none;color:var(--accent2);font-size:13px;cursor:pointer;margin-bottom:16px;padding:3px 0}
+    label{display:block;font-size:12px;color:var(--muted);margin:0 3px 7px}
+    .field{position:relative}.field input{width:100%;background:var(--card2);border:1px solid var(--border);border-radius:13px;padding:14px 15px;color:var(--text);font-size:16px;outline:none;margin-bottom:13px;direction:ltr;text-align:left}
+    .field input:focus{border-color:var(--accent2);box-shadow:0 0 0 3px rgba(167,139,250,.09)}
+    .toggle-password{position:absolute;left:10px;top:8px;border:0;background:transparent;color:var(--muted);padding:7px;cursor:pointer;font-size:13px}
+    .btn{width:100%;border:none;border-radius:13px;padding:14px 16px;font-weight:750;cursor:pointer;margin-bottom:10px;transition:.15s}
+    .btn:active{transform:scale(.985)}.btn:disabled{opacity:.55;cursor:wait}.primary{background:linear-gradient(135deg,var(--accent),#5b21b6);color:white}.social{background:white;color:#171717;display:flex;align-items:center;justify-content:center;gap:10px}.apple{background:#000;color:#fff;border:1px solid #383838}.outline{background:transparent;border:1px solid var(--border);color:var(--text)}
+    .divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;margin:14px 0}.divider:before,.divider:after{content:"";height:1px;background:var(--border);flex:1}
+    .message{display:none;border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.45;margin-top:7px}.message.show{display:block}.error{background:#2b1116;border:1px solid #6f2430;color:#fecdd3}.success{background:#082c22;border:1px solid #145e49;color:#a7f3d0}
+    .helper{font-size:11px;color:var(--muted);line-height:1.55;margin:-4px 2px 14px}.note{text-align:center;color:var(--muted);font-size:11px;line-height:1.55;margin-top:16px}
+    .mini-badge{display:inline-flex;align-items:center;gap:6px;background:#211a36;border:1px solid var(--border);padding:6px 9px;border-radius:999px;color:var(--accent2);font-size:11px;margin-bottom:14px}
+    .apple-hint{font-size:11px;color:var(--muted);text-align:center;margin:-4px 0 14px}
+    @media(max-width:360px){.card{padding:18px}.role{padding:14px}.brand{margin-bottom:18px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">✦</div>
+      <h1>Teacher OS</h1>
+      <div class="tag">ללמד טוב יותר. להתאמן כל יום.</div>
+    </div>
+
+    <section class="card" aria-live="polite">
+      <div class="step active" id="role-step">
+        <div class="mini-badge">🔒 כניסה למשתמשים שהוגדרו מראש</div>
+        <div class="title">איך תרצה להיכנס?</div>
+        <div class="sub">בחר את סוג המשתמש שלך. ההמשך מותאם למורה או לתלמיד.</div>
+
+        <button class="role" data-role="teacher">
+          <span class="role-icon">👩‍🏫</span>
+          <span class="role-copy"><span class="role-main">אני מלמד אנגלית</span><span class="role-sub">כניסה באמצעות Google, Apple או אימייל</span></span>
+          <span class="arrow">‹</span>
+        </button>
+
+        <button class="role" data-role="student">
+          <span class="role-icon">🎓</span>
+          <span class="role-copy"><span class="role-main">אני לומד אנגלית</span><span class="role-sub">כניסה באמצעות הפרטים שקיבלתי מהמורה</span></span>
+          <span class="arrow">‹</span>
+        </button>
+      </div>
+
+      <div class="step" id="teacher-step">
+        <button class="back" data-back>→ חזרה לבחירה</button>
+        <div class="title">כניסת מורה</div>
+        <div class="sub">חשבון המורה מוקם מראש על ידי מנהל המערכת.</div>
+
+        <button class="btn social" id="google-login"><strong style="font-size:19px">G</strong> המשך עם Google</button>
+        <button class="btn social apple" id="apple-login"><span style="font-size:20px">●</span> המשך עם Apple</button>
+        <div class="apple-hint">כניסה עם Apple תופעל בשלב מאוחר יותר</div>
+        <div class="divider">או עם אימייל</div>
+
+        <label for="teacher-email">אימייל</label>
+        <div class="field"><input id="teacher-email" type="email" autocomplete="email" inputmode="email" placeholder="teacher@example.com" /></div>
+        <label for="teacher-password">סיסמה</label>
+        <div class="field"><input id="teacher-password" type="password" autocomplete="current-password" placeholder="••••••••" /><button class="toggle-password" data-toggle="teacher-password" type="button">הצג</button></div>
+        <button class="btn primary" id="teacher-email-login">התחברות</button>
+        <button class="btn outline" id="forgot-password">שכחתי סיסמה</button>
+        <div class="message" id="teacher-message"></div>
+      </div>
+
+      <div class="step" id="student-step">
+        <button class="back" data-back>→ חזרה לבחירה</button>
+        <div class="title">כניסת תלמיד</div>
+        <div class="sub">הזן את שם המשתמש והסיסמה שקיבלת מהמורה.</div>
+
+        <label for="student-username">שם משתמש</label>
+        <div class="field"><input id="student-username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="leah-a472" /></div>
+        <div class="helper">שם המשתמש הוא פרט התחברות בלבד. המורה רואה ומנהל אותך לפי שמך המלא.</div>
+        <label for="student-password">סיסמה</label>
+        <div class="field"><input id="student-password" type="password" autocomplete="current-password" placeholder="••••••••" /><button class="toggle-password" data-toggle="student-password" type="button">הצג</button></div>
+        <button class="btn primary" id="student-login">התחברות</button>
+        <div class="message" id="student-message"></div>
+      </div>
+    </section>
+
+    <div class="note">אין הרשמה עצמאית.<br>מורים מוקמים על ידי מנהל המערכת ותלמידים מוקמים על ידי המורה.</div>
+  </main>
+
+  <script type="module">
+    import { GoogleAuthProvider, OAuthProvider, signInWithPopup, signInWithEmailAndPassword, sendPasswordResetEmail, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { auth, REDIRECTS } from "./firebase-config.js";
+    import { requireRole, friendlyError, setBusy } from "./auth-shared.js";
+
+    const steps = [...document.querySelectorAll('.step')];
+
+    function showStep(id) { steps.forEach(step => step.classList.toggle('active', step.id === id)); clearMessages(); }
+    function clearMessages() { document.querySelectorAll('.message').forEach(el => { el.className = 'message'; el.textContent = ''; }); }
+    function showMessage(id, text, type = 'error') { const el = document.getElementById(id); el.textContent = text; el.className = `message show ${type}`; }
+
+    document.querySelectorAll('[data-role]').forEach(btn => btn.addEventListener('click', () => showStep(`${btn.dataset.role}-step`)));
+    document.querySelectorAll('[data-back]').forEach(btn => btn.addEventListener('click', () => showStep('role-step')));
+    document.querySelectorAll('[data-toggle]').forEach(btn => btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.dataset.toggle);
+      const hidden = input.type === 'password'; input.type = hidden ? 'text' : 'password'; btn.textContent = hidden ? 'הסתר' : 'הצג';
+    }));
+
+    // מורה ואדמין חולקים את אותו מסך כניסה - הניתוב נקבע לפי ה-role בפועל שנטען מ-Firestore
+    async function finishTeacherFlow(user) {
+      const profile = await requireRole(user, ['teacher', 'admin']);
+      window.location.href = profile.role === 'admin' ? REDIRECTS.admin : REDIRECTS.teacher;
+    }
+    async function finishStudentFlow(user) {
+      await requireRole(user, ['student']);
+      window.location.href = REDIRECTS.student;
+    }
+
+    async function socialLogin(provider, button) {
+      try {
+        setBusy(button, true, 'מתחבר...');
+        const result = await signInWithPopup(auth, provider);
+        await finishTeacherFlow(result.user);
+      } catch (error) { showMessage('teacher-message', friendlyError(error)); }
+      finally { setBusy(button, false); }
+    }
+
+    document.getElementById('google-login').addEventListener('click', () => socialLogin(new GoogleAuthProvider(), document.getElementById('google-login')));
+    document.getElementById('apple-login').addEventListener('click', () => {
+      const provider = new OAuthProvider('apple.com'); provider.addScope('email'); provider.addScope('name');
+      socialLogin(provider, document.getElementById('apple-login'));
+    });
+
+    document.getElementById('teacher-email-login').addEventListener('click', async () => {
+      const button = document.getElementById('teacher-email-login');
+      try {
+        const email = document.getElementById('teacher-email').value.trim();
+        const password = document.getElementById('teacher-password').value;
+        if (!email || !password) throw new Error('יש להזין אימייל וסיסמה.');
+        setBusy(button, true, 'מתחבר...');
+        const result = await signInWithEmailAndPassword(auth, email, password);
+        await finishTeacherFlow(result.user);
+      } catch (error) { showMessage('teacher-message', friendlyError(error)); }
+      finally { setBusy(button, false); }
+    });
+
+    document.getElementById('student-login').addEventListener('click', async () => {
+      const button = document.getElementById('student-login');
+      try {
+        const username = document.getElementById('student-username').value.trim().toLowerCase().replace(/\s+/g, '');
+        const password = document.getElementById('student-password').value;
+        if (!username || !password) throw new Error('יש להזין שם משתמש וסיסמה.');
+        if (!/^[a-z0-9._-]{4,40}$/.test(username)) throw new Error('שם המשתמש אינו תקין.');
+        setBusy(button, true, 'מתחבר...');
+        const internalEmail = `${username}@students.teacher-os.local`;
+        const result = await signInWithEmailAndPassword(auth, internalEmail, password);
+        await finishStudentFlow(result.user);
+      } catch (error) { showMessage('student-message', friendlyError(error)); }
+      finally { setBusy(button, false); }
+    });
+
+    document.getElementById('forgot-password').addEventListener('click', async () => {
+      try {
+        const email = document.getElementById('teacher-email').value.trim();
+        if (!email) throw new Error('יש להזין קודם את כתובת האימייל.');
+        await sendPasswordResetEmail(auth, email);
+        showMessage('teacher-message', 'נשלח אליך קישור לאיפוס הסיסמה.', 'success');
+      } catch (error) { showMessage('teacher-message', friendlyError(error)); }
+    });
+
+    ['teacher-password', 'student-password'].forEach(id => document.getElementById(id).addEventListener('keydown', event => {
+      if (event.key === 'Enter') document.getElementById(id === 'teacher-password' ? 'teacher-email-login' : 'student-login').click();
+    }));
+
+    // סשן קודם קיים - מנתבים ישירות בלי להראות שוב את מסך הבחירה
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) return;
+      try {
+        const profile = await requireRole(user, ['admin', 'teacher', 'student']);
+        window.location.href = REDIRECTS[profile.role];
+      } catch (e) { /* אם הבדיקה נכשלת, נשארים במסך הכניסה */ }
+    });
+  </script>
+</body>
+</html>
