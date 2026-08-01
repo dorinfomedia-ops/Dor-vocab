@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0d1a" />
+  <title>Teacher OS | פרטי תלמיד</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    :root{--bg:#0d0d1a;--card:#161628;--card2:#1e1e35;--accent:#7c3aed;--accent2:#a78bfa;--text:#f8fafc;--muted:#9a9ab5;--border:#2a2a45;--green:#10b981;--yellow:#f59e0b;--red:#ef4444}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:radial-gradient(circle at 50% -10%,#2c1756 0,#171125 28%,var(--bg) 60%);color:var(--text);min-height:100vh;min-height:100dvh;padding:20px 16px calc(20px + env(safe-area-inset-bottom))}
+    .shell{max-width:460px;margin:0 auto}
+    .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .back{color:var(--accent2);background:none;border:none;font-size:14px;cursor:pointer;padding:6px 0}
+    h1{font-size:19px}
+    .card{background:rgba(22,22,40,.95);border:1px solid var(--border);border-radius:20px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.28);margin-bottom:14px}
+    .head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+    .avatar{width:48px;height:48px;border-radius:14px;background:#282042;display:grid;place-items:center;font-size:22px;flex:none}
+    .name{font-size:18px;font-weight:750}
+    .username{font-size:12.5px;color:var(--muted);margin-top:2px;direction:ltr;text-align:right}
+    .badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;border-radius:999px;padding:4px 10px;margin-top:8px}
+    .badge.active{background:#082c22;color:var(--green);border:1px solid #145e49}
+    .badge.inactive{background:#2b1116;color:#fecdd3;border:1px solid #6f2430}
+    .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .stat{background:var(--card2);border:1px solid var(--border);border-radius:14px;padding:14px;text-align:center}
+    .stat b{display:block;font-size:22px}.stat span{font-size:11px;color:var(--muted)}
+    .section-title{font-size:13px;font-weight:650;margin-bottom:10px;color:var(--accent2)}
+    .wrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
+    .wrow:last-child{border:none}
+    .dot{width:8px;height:8px;border-radius:50%}
+    .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 0}
+    .loading{text-align:center;color:var(--muted);font-size:14px;padding:40px 0}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="topbar">
+      <button class="back" onclick="window.location.href='./teacher-students.html'">→ חזרה</button>
+      <h1>פרטי תלמיד</h1>
+      <span style="width:52px"></span>
+    </div>
+
+    <div id="loading" class="loading">טוען נתונים...</div>
+    <div id="content" style="display:none">
+      <div class="card">
+        <div class="head">
+          <div class="avatar">🎓</div>
+          <div>
+            <div class="name" id="s-name"></div>
+            <div class="username" id="s-username"></div>
+          </div>
+        </div>
+        <span class="badge" id="s-badge"></span>
+      </div>
+
+      <div class="card">
+        <div class="stats">
+          <div class="stat"><b id="st-words">0</b><span>מילים</span></div>
+          <div class="stat"><b id="st-sessions">0</b><span>סשנים</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">חוזק מילים</div>
+        <div id="strength-area"><div class="empty">אין עדיין נתוני תרגול</div></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">סשנים אחרונים</div>
+        <div id="sessions-area"><div class="empty">עוד אין היסטוריה</div></div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { doc, getDoc, collection, getDocs, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { auth, db, REDIRECTS } from "./firebase-config.js";
+    import { requireRole } from "./auth-shared.js";
+
+    const studentId = new URLSearchParams(window.location.search).get('student');
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) { window.location.href = REDIRECTS.login; return; }
+      try { await requireRole(user, ['teacher', 'admin']); }
+      catch (e) { window.location.href = REDIRECTS.login; return; }
+
+      if (!studentId) { document.getElementById('loading').textContent = 'לא צוין תלמיד.'; return; }
+
+      try {
+        const studentSnap = await getDoc(doc(db, 'users', studentId));
+        if (!studentSnap.exists() || studentSnap.data().role !== 'student') {
+          document.getElementById('loading').textContent = 'התלמיד לא נמצא.';
+          return;
+        }
+        const student = studentSnap.data();
+        document.getElementById('s-name').textContent = student.displayName || student.username;
+        document.getElementById('s-username').textContent = student.username || '';
+        const badge = document.getElementById('s-badge');
+        const isActive = student.active !== false;
+        badge.textContent = isActive ? '● פעיל' : '● לא פעיל';
+        badge.className = 'badge ' + (isActive ? 'active' : 'inactive');
+
+        const [wordsSnap, sessionsSnap] = await Promise.all([
+          getDocs(collection(db, 'users', studentId, 'words')),
+          getDocs(query(collection(db, 'users', studentId, 'sessions'), orderBy('timestamp', 'desc'), limit(5)))
+        ]);
+
+        document.getElementById('st-words').textContent = wordsSnap.size;
+        document.getElementById('st-sessions').textContent = sessionsSnap.size;
+
+        // חוזק מילים - נטען מה-subcollection strength, ממופה לפי en
+        const strengthSnap = await getDocs(collection(db, 'users', studentId, 'strength'));
+        const strengthMap = {};
+        strengthSnap.forEach(d => { strengthMap[d.id] = d.data().strength; });
+
+        const words = wordsSnap.docs.map(d => d.data());
+        if (words.length) {
+          const weak = words.filter(w => strengthMap[safeId(w.en)] === 0).length;
+          const mid = words.filter(w => (strengthMap[safeId(w.en)] ?? 1) === 1).length;
+          const strong = words.filter(w => strengthMap[safeId(w.en)] === 2).length;
+          document.getElementById('strength-area').innerHTML = `
+            <div class="wrow"><span><span class="dot" style="background:var(--red)"></span> חלש</span><span>${weak}</span></div>
+            <div class="wrow"><span><span class="dot" style="background:var(--yellow)"></span> בינוני</span><span>${mid}</span></div>
+            <div class="wrow"><span><span class="dot" style="background:var(--green)"></span> חזק</span><span>${strong}</span></div>
+          `;
+        }
+
+        if (!sessionsSnap.empty) {
+          document.getElementById('sessions-area').innerHTML = sessionsSnap.docs.map(d => {
+            const s = d.data();
+            const pct = s.pct ?? (s.total > 0 ? Math.round((s.correct / s.total) * 100) : 0);
+            return `<div class="wrow"><span>${escapeHtml(s.date || '')}</span><span>${s.correct ?? 0}/${s.total ?? 0} · ${pct}%</span></div>`;
+          }).join('');
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+      } catch (e) {
+        document.getElementById('loading').textContent = 'לא ניתן היה לטעון את נתוני התלמיד.';
+      }
+    });
+
+    function safeId(en) { return String(en).replace(/[^a-zA-Z0-9]/g, '_').slice(0, 50); }
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+  </script>
+</body>
+</html>
