@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0d1a" />
+  <title>Teacher OS | הגירת נתונים היסטוריים</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+    :root{--bg:#0d0d1a;--card:#161628;--card2:#1e1e35;--accent:#7c3aed;--accent2:#a78bfa;--text:#f8fafc;--muted:#9a9ab5;--border:#2a2a45;--green:#10b981;--red:#ef4444;--yellow:#f59e0b}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:radial-gradient(circle at 50% -10%,#2c1756 0,#171125 28%,var(--bg) 60%);color:var(--text);min-height:100vh;min-height:100dvh;padding:20px 16px calc(20px + env(safe-area-inset-bottom))}
+    .shell{max-width:480px;margin:0 auto}
+    .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+    .back{color:var(--accent2);background:none;border:none;font-size:14px;cursor:pointer;padding:6px 0}
+    h1{font-size:19px}
+    .card{background:rgba(22,22,40,.95);border:1px solid var(--border);border-radius:20px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.28);margin-bottom:14px}
+    .warn{background:#2b2211;border:1px solid #6f5a24;color:#fde68a;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.6;margin-bottom:16px}
+    .danger{background:#2b1116;border:1px solid #6f2430;color:#fecdd3;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.6;margin-bottom:16px}
+    label{display:block;font-size:12px;color:var(--muted);margin:0 3px 7px}
+    input[type=text]{width:100%;background:var(--card2);border:1px solid var(--border);border-radius:13px;padding:14px 15px;color:var(--text);font-size:15px;outline:none;margin-bottom:13px;direction:ltr;text-align:left}
+    input[type=text]:focus{border-color:var(--accent2)}
+    .checkrow{display:flex;align-items:center;gap:9px;margin-bottom:16px;font-size:13px;color:var(--muted)}
+    .btn{width:100%;border:none;border-radius:13px;padding:14px 16px;font-weight:750;cursor:pointer;margin-bottom:10px}
+    .btn:active{transform:scale(.985)}.btn:disabled{opacity:.45;cursor:not-allowed}
+    .primary{background:linear-gradient(135deg,var(--accent),#5b21b6);color:#fff}
+    .outline{background:transparent;border:1px solid var(--border);color:var(--text)}
+    .go{background:linear-gradient(135deg,var(--red),#991b1b);color:#fff}
+    .section-title{font-size:13px;font-weight:650;margin-bottom:10px;color:var(--accent2)}
+    .row{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border);font-size:13.5px}
+    .row:last-child{border:none}
+    .log{font-size:12px;color:var(--muted);white-space:pre-wrap;max-height:220px;overflow:auto;background:var(--card2);border-radius:10px;padding:10px;margin-top:6px}
+    .loading{text-align:center;color:var(--muted);font-size:14px;padding:20px 0}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="topbar">
+      <button class="back" onclick="window.location.href='./admin-dashboard.html'">→ חזרה</button>
+      <h1>הגירת נתונים היסטוריים</h1>
+      <span style="width:52px"></span>
+    </div>
+
+    <div id="gate" class="loading">בודק הרשאות...</div>
+
+    <div id="app" class="hidden">
+      <div class="warn">⚠️ כלי חד-פעמי, למנהל בלבד. הוא מעתיק מסמכים מהאוספים הגלובליים (<code>words</code>, <code>strength</code>, <code>sessions</code>, <code>usage</code>) אל <code>users/{targetUid}/...</code>. הנתונים המקוריים <strong>לא</strong> נמחקים אלא אם תסמן זאת במפורש למטה.</div>
+
+      <div class="card">
+        <label for="target-uid">UID היעד (מי שיקבל את הנתונים ההיסטוריים)</label>
+        <input type="text" id="target-uid" placeholder="לדוגמה: ubyaWodRykQ8UBKoiIfyn4ObaEt1" />
+        <div class="checkrow"><input type="checkbox" id="delete-source" /><label for="delete-source" style="margin:0">מחק את המסמכים המקוריים אחרי העברה מוצלחת</label></div>
+        <button class="btn outline" id="preview-btn">🔍 בדוק לפני העברה (Preview)</button>
+        <button class="btn go" id="run-btn" disabled>🚀 בצע העברה בפועל</button>
+      </div>
+
+      <div class="card hidden" id="preview-card">
+        <div class="section-title">מה נמצא באוספים הגלובליים</div>
+        <div id="preview-rows"></div>
+      </div>
+
+      <div class="card hidden" id="log-card">
+        <div class="section-title">תוצאה</div>
+        <div class="log" id="log-area"></div>
+      </div>
+    </div>
+  </main>
+
+  <script type="module">
+    import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+    import { collection, getDocs, doc, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { auth, db, REDIRECTS } from "./firebase-config.js";
+    import { requireRole } from "./auth-shared.js";
+
+    const LEGACY_COLLECTIONS = ['words', 'strength', 'sessions', 'usage'];
+    let lastFetched = {}; // collectionName -> array of {id, data}
+
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) { window.location.href = REDIRECTS.login; return; }
+      try { await requireRole(user, ['admin']); }
+      catch (e) { window.location.href = REDIRECTS.login; return; }
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('app').classList.remove('hidden');
+    });
+
+    function log(text) {
+      const el = document.getElementById('log-area');
+      document.getElementById('log-card').classList.remove('hidden');
+      el.textContent += text + '\n';
+      el.scrollTop = el.scrollHeight;
+    }
+
+    document.getElementById('preview-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('preview-btn');
+      btn.disabled = true; btn.textContent = 'בודק...';
+      lastFetched = {};
+      const rows = [];
+      for (const name of LEGACY_COLLECTIONS) {
+        const snap = await getDocs(collection(db, name));
+        lastFetched[name] = snap.docs.map(d => ({ id: d.id, data: d.data() }));
+        rows.push(`<div class="row"><span>${name}</span><span>${snap.size} מסמכים</span></div>`);
+      }
+      document.getElementById('preview-rows').innerHTML = rows.join('');
+      document.getElementById('preview-card').classList.remove('hidden');
+      btn.disabled = false; btn.textContent = '🔍 בדוק לפני העברה (Preview)';
+      const anyData = Object.values(lastFetched).some(arr => arr.length > 0);
+      document.getElementById('run-btn').disabled = !anyData;
+    });
+
+    document.getElementById('run-btn').addEventListener('click', async () => {
+      const targetUid = document.getElementById('target-uid').value.trim();
+      if (!targetUid) { alert('יש להזין UID יעד.'); return; }
+      if (!Object.keys(lastFetched).length) { alert('יש להריץ קודם Preview.'); return; }
+      if (!confirm(`להעביר את כל הנתונים ההיסטוריים אל users/${targetUid}/...? פעולה זו כותבת נתונים אמיתיים.`)) return;
+
+      const deleteSource = document.getElementById('delete-source').checked;
+      const btn = document.getElementById('run-btn');
+      btn.disabled = true; btn.textContent = 'מעביר...';
+      document.getElementById('log-area').textContent = '';
+
+      try {
+        for (const name of LEGACY_COLLECTIONS) {
+          const items = lastFetched[name] || [];
+          if (!items.length) { log(`${name}: אין מה להעביר.`); continue; }
+
+          let batch = writeBatch(db);
+          let opsInBatch = 0;
+          for (const item of items) {
+            const target = doc(db, 'users', targetUid, name, item.id);
+            batch.set(target, item.data, { merge: true });
+            opsInBatch++;
+            if (opsInBatch >= 400) { await batch.commit(); batch = writeBatch(db); opsInBatch = 0; }
+          }
+          if (opsInBatch > 0) await batch.commit();
+          log(`${name}: הועתקו ${items.length} מסמכים אל users/${targetUid}/${name}`);
+
+          if (deleteSource) {
+            for (const item of items) {
+              await deleteDoc(doc(db, name, item.id));
+            }
+            log(`${name}: נמחקו ${items.length} מסמכים מהמקור.`);
+          }
+        }
+        log('\n✅ ההעברה הושלמה.');
+      } catch (e) {
+        log('\n❌ שגיאה: ' + (e?.message || e));
+      } finally {
+        btn.disabled = false; btn.textContent = '🚀 בצע העברה בפועל';
+      }
+    });
+  </script>
+</body>
+</html>
