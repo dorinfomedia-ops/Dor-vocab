@@ -197,13 +197,27 @@
     });
 
     async function loadAll() {
-      const [wordsSnap, sessionsSnap, strengthSnap, lessonsSnap, paymentsSnap] = await Promise.all([
+      // מילים/סשנים/חוזק - הפונקציונליות המקורית שכבר עבדה, לא תלויה בהרשאות החדשות
+      const [wordsSnap, sessionsSnap, strengthSnap] = await Promise.all([
         getDocs(collection(db, 'users', studentId, 'words')),
         getDocs(query(collection(db, 'users', studentId, 'sessions'), orderBy('timestamp', 'desc'), limit(5))),
-        getDocs(collection(db, 'users', studentId, 'strength')),
-        getDocs(query(collection(db, 'lessons'), where('studentId', '==', studentId), orderBy('createdAt', 'desc'), limit(10))),
-        getDocs(query(collection(db, 'payments'), where('studentId', '==', studentId), orderBy('createdAt', 'desc'), limit(10)))
+        getDocs(collection(db, 'users', studentId, 'strength'))
       ]);
+
+      // שיעורים/תשלומים - אוספים חדשים שעלולים להיכשל עד שfirestore.rules יעודכן.
+      // נכשלים "בשקט" כדי לא להפיל את שאר העמוד.
+      let lessonsSnap = { docs: [], empty: true };
+      let paymentsSnap = { docs: [], empty: true };
+      try {
+        lessonsSnap = await getDocs(query(collection(db, 'lessons'), where('studentId', '==', studentId), orderBy('createdAt', 'desc'), limit(10)));
+      } catch (e) {
+        document.getElementById('lessons-area').innerHTML = '<div class="empty">אין עדיין הרשאה לטעון שיעורים (firestore.rules)</div>';
+      }
+      try {
+        paymentsSnap = await getDocs(query(collection(db, 'payments'), where('studentId', '==', studentId), orderBy('createdAt', 'desc'), limit(10)));
+      } catch (e) {
+        document.getElementById('payments-area').innerHTML = '<div class="empty">אין עדיין הרשאה לטעון תשלומים (firestore.rules)</div>';
+      }
 
       currentWords = wordsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       document.getElementById('st-words').textContent = currentWords.length;
