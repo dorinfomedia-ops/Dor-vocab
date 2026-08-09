@@ -209,12 +209,12 @@
       let lessonsSnap = { docs: [], empty: true };
       let paymentsSnap = { docs: [], empty: true };
       try {
-        lessonsSnap = await getDocs(query(collection(db, 'lessons'), where('studentId', '==', studentId), orderBy('createdAt', 'desc'), limit(10)));
+        lessonsSnap = await getDocs(query(collection(db, 'lessons'), where('studentId', '==', studentId), where('teacherId', '==', currentUserUid), orderBy('createdAt', 'desc'), limit(10)));
       } catch (e) {
         document.getElementById('lessons-area').innerHTML = '<div class="empty">אין עדיין הרשאה לטעון שיעורים (firestore.rules)</div>';
       }
       try {
-        paymentsSnap = await getDocs(query(collection(db, 'payments'), where('studentId', '==', studentId), orderBy('createdAt', 'desc'), limit(10)));
+        paymentsSnap = await getDocs(query(collection(db, 'payments'), where('studentId', '==', studentId), where('teacherId', '==', currentUserUid), orderBy('createdAt', 'desc'), limit(10)));
       } catch (e) {
         document.getElementById('payments-area').innerHTML = '<div class="empty">אין עדיין הרשאה לטעון תשלומים (firestore.rules)</div>';
       }
@@ -333,7 +333,7 @@
 
       try {
         setBusy(btn, true, 'שומר...');
-        const existingLessonsSnap = await getDocs(query(collection(db, 'lessons'), where('studentId', '==', studentId)));
+        const existingLessonsSnap = await getDocs(query(collection(db, 'lessons'), where('studentId', '==', studentId), where('teacherId', '==', currentUserUid)));
         const lessonNumber = existingLessonsSnap.size + 1;
         await addDoc(collection(db, 'lessons'), {
           teacherId: currentUserUid,
