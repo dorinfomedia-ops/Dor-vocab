@@ -7,12 +7,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./nav-shell.css">
   <title>Teacher OS | אזור מורה</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     :root{--bg:#F7F8F4;--card:#FFFFFF;--card2:#F3F5F2;--accent:#287D8E;--accent2:#24556A;--text:#263746;--muted:#5C6B76;--border:#E3E8E5}
-    body{font-family:'Rubik',-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px 18px calc(24px + env(safe-area-inset-bottom));font-weight:500;line-height:1.6}
-    .shell{width:100%;max-width:430px;text-align:center}
+    body{font-family:'Rubik',-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;font-weight:500;line-height:1.6}
+    .shell{width:100%;max-width:430px;text-align:center;margin-top:12px}
     .logo{width:66px;height:66px;margin:0 auto 18px;border-radius:21px;background:linear-gradient(135deg,var(--accent),#24556A);display:grid;place-items:center;font-size:31px;box-shadow:0 8px 20px rgba(40,125,142,.25)}
     .card{background:#FFFFFF;border:1px solid var(--border);border-radius:24px;padding:28px 22px;box-shadow:0 4px 20px rgba(38,55,70,.08)}
     h1{font-size:22px;margin-bottom:8px}
@@ -27,7 +28,25 @@
   </style>
 </head>
 <body>
-  <main class="shell">
+  <div class="app-layout">
+  <nav class="app-sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-icon">✦</div>
+      <div class="sb-logo-text">Teacher OS</div>
+    </div>
+    <a class="sb-item active" href="./teacher-dashboard.html"><span class="sb-icon">◈</span>דשבורד</a>
+    <a class="sb-item" href="./teacher-students.html"><span class="sb-icon">◐</span>התלמידים שלי</a>
+    <div class="sb-section-label">בקרוב</div>
+    <span class="sb-item disabled"><span class="sb-icon">◒</span>בנק מילים</span>
+    <span class="sb-item disabled"><span class="sb-icon">◓</span>משפטים</span>
+    <span class="sb-item disabled"><span class="sb-icon">◑</span>שיעורים</span>
+    <span class="sb-item disabled"><span class="sb-icon">◔</span>תשלומים</span>
+    <span class="sb-item disabled"><span class="sb-icon">◕</span>משימות</span>
+    <span class="sb-item disabled"><span class="sb-icon">○</span>התקדמות</span>
+    <div class="sb-footer">Teacher OS · גרסה בבנייה</div>
+  </nav>
+  <main class="app-main"><div class="app-main-inner">
+  <div class="shell">
     <div class="logo" aria-hidden="true">✦</div>
     <div class="card">
       <div id="loading" class="loading">בודק הרשאות...</div>
@@ -43,7 +62,9 @@
         <button class="btn" id="logout-btn">התנתקות</button>
       </div>
     </div>
-  </main>
+  </div>
+  </div></main>
+  </div>
 
   <script type="module">
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
