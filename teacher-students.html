@@ -7,12 +7,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./nav-shell.css">
   <title>Teacher OS | התלמידים שלי</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
     :root{--bg:#F7F8F4;--card:#FFFFFF;--card2:#F3F5F2;--accent:#287D8E;--accent2:#24556A;--text:#263746;--muted:#5C6B76;--border:#E3E8E5;--green:#65A978;--red:#DE6B67}
     body{font-family:'Rubik',-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;min-height:100dvh;padding:20px 16px calc(20px + env(safe-area-inset-bottom));font-weight:500;line-height:1.6}
-    .shell{max-width:460px;margin:0 auto}
+    .shell{max-width:100%}
     .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
     .back{color:var(--accent2);background:none;border:none;font-size:14px;cursor:pointer;padding:6px 0}
     h1{font-size:21px}
@@ -30,14 +31,58 @@
     .arrow{color:var(--muted);font-size:18px}
     .loading{text-align:center;color:var(--muted);font-size:14px;padding:30px 0}
     .quota{font-size:12px;color:var(--muted);text-align:center;margin-top:14px}
+    .summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+    .metric-card{background:#FFFFFF;border:1px solid var(--border);border-radius:14px;padding:14px 16px;box-shadow:0 4px 16px rgba(38,55,70,.05)}
+    .metric-label{font-size:11px;color:var(--muted);margin-bottom:6px}
+    .metric-value{font-size:22px;font-weight:700}
+    .metric-value.accent{color:var(--accent2)}
+    .metric-value.danger{color:var(--red)}
+    @media(max-width:700px){.summary-grid{grid-template-columns:1fr 1fr}}
+    .table-wrap{overflow-x:auto}
+    table{width:100%;border-collapse:collapse;min-width:520px}
+    th{text-align:right;font-size:11.5px;color:var(--muted);font-weight:700;padding:10px 14px;border-bottom:1px solid var(--border)}
+    td{padding:12px 14px;font-size:13.5px;border-bottom:1px solid var(--border)}
+    tbody tr{cursor:pointer;transition:.1s}
+    tbody tr:hover td{background:var(--card2)}
+    tbody tr:last-child td{border-bottom:none}
+    .t-name{display:flex;align-items:center;gap:10px}
+    .status-pill{font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:999px}
+    .status-active{background:#EAF4EC;color:#3A7A50}
+    .status-inactive{background:#FBEAEA;color:#9C3B38}
+    .status-low{background:#FDF1E0;color:#8A5A1A}
   </style>
 </head>
 <body>
-  <main class="shell">
+  <div class="app-layout">
+  <nav class="app-sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-icon">✦</div>
+      <div class="sb-logo-text">Teacher OS</div>
+    </div>
+    <a class="sb-item" href="./teacher-dashboard.html"><span class="sb-icon">◈</span>דשבורד</a>
+    <a class="sb-item active" href="./teacher-students.html"><span class="sb-icon">◐</span>התלמידים שלי</a>
+    <div class="sb-section-label">בקרוב</div>
+    <span class="sb-item disabled"><span class="sb-icon">◒</span>בנק מילים</span>
+    <span class="sb-item disabled"><span class="sb-icon">◓</span>משפטים</span>
+    <span class="sb-item disabled"><span class="sb-icon">◑</span>שיעורים</span>
+    <span class="sb-item disabled"><span class="sb-icon">◔</span>תשלומים</span>
+    <span class="sb-item disabled"><span class="sb-icon">◕</span>משימות</span>
+    <span class="sb-item disabled"><span class="sb-icon">○</span>התקדמות</span>
+    <div class="sb-footer">Teacher OS · גרסה בבנייה</div>
+  </nav>
+  <main class="app-main"><div class="app-main-inner">
+  <div class="shell">
     <div class="topbar">
       <button class="back" onclick="window.location.href='./teacher-dashboard.html'">→ חזרה</button>
       <h1>התלמידים שלי</h1>
       <span style="width:52px"></span>
+    </div>
+
+    <div class="summary-grid" id="summary-grid" style="display:none">
+      <div class="metric-card"><div class="metric-label">סה"כ תלמידים</div><div class="metric-value" id="m-students">—</div></div>
+      <div class="metric-card"><div class="metric-label">שיעורים החודש</div><div class="metric-value accent" id="m-lessons">—</div></div>
+      <div class="metric-card"><div class="metric-label">מילים במאגרים</div><div class="metric-value" id="m-words">—</div></div>
+      <div class="metric-card"><div class="metric-label">יתרה נמוכה</div><div class="metric-value danger" id="m-low">—</div></div>
     </div>
 
     <div class="card">
@@ -45,7 +90,9 @@
       <div id="list-area"><div class="loading">טוען תלמידים...</div></div>
       <div class="quota" id="quota-line"></div>
     </div>
-  </main>
+  </div>
+  </div></main>
+  </div>
 
   <script type="module">
     import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
@@ -80,16 +127,64 @@
         const students = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         students.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '', 'he'));
 
-        listArea.innerHTML = students.map(s => `
-          <div class="student" onclick="window.location.href='./teacher-student-detail.html?student=${s.id}'">
-            <div class="avatar">🎓</div>
-            <div class="info">
-              <div class="name">${escapeHtml(s.displayName || s.username)}</div>
-              <div class="meta"><span class="dot" style="background:${s.active === false ? 'var(--red)' : 'var(--green)'}"></span>${s.active === false ? 'לא פעיל' : 'פעיל'} · ${escapeHtml(s.username || '')}</div>
-            </div>
-            <div class="arrow">‹</div>
+        // נתונים ברמת המורה (2 שאילתות בלבד, לא לפי תלמיד - יעיל)
+        let lessonsAll = [], paymentsAll = [];
+        try {
+          const [lessonsSnap, paymentsSnap] = await Promise.all([
+            getDocs(query(collection(db, 'lessons'), where('teacherId', '==', user.uid))),
+            getDocs(query(collection(db, 'payments'), where('teacherId', '==', user.uid)))
+          ]);
+          lessonsAll = lessonsSnap.docs.map(d => d.data());
+          paymentsAll = paymentsSnap.docs.map(d => d.data());
+        } catch (e) { /* אם firestore.rules עדיין לא מוכן - נמשיך בלי הנתונים האלה */ }
+
+        // ספירת מילים לכל תלמיד (שאילתה אחת לכל תלמיד - סביר בהיקף הנוכחי)
+        const wordCounts = await Promise.all(students.map(async s => {
+          try { const ws = await getDocs(collection(db, 'users', s.id, 'words')); return ws.size; }
+          catch (e) { return 0; }
+        }));
+
+        const thisMonthPrefix = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const studentsWithStats = students.map((s, i) => {
+          const paid = paymentsAll.filter(p => p.studentId === s.id).reduce((sum, p) => sum + (p.lessonsAdded || 0), 0);
+          const used = lessonsAll.filter(l => l.studentId === s.id && l.status !== 'cancelled').length;
+          return { ...s, wordCount: wordCounts[i], balance: paid - used };
+        });
+
+        // כרטיסי סיכום
+        const totalStudents = students.length;
+        const lessonsThisMonth = lessonsAll.filter(l => (l.date || '').startsWith(thisMonthPrefix) && l.status !== 'cancelled').length;
+        const totalWords = wordCounts.reduce((a, b) => a + b, 0);
+        const lowBalanceCount = studentsWithStats.filter(s => s.balance <= 2).length;
+        document.getElementById('m-students').textContent = totalStudents;
+        document.getElementById('m-lessons').textContent = lessonsThisMonth;
+        document.getElementById('m-words').textContent = totalWords;
+        document.getElementById('m-low').textContent = lowBalanceCount;
+        document.getElementById('summary-grid').style.display = 'grid';
+
+        // טבלה (עם גלילה אופקית אוטומטית במסכים צרים)
+        listArea.innerHTML = `
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>תלמיד</th><th>מילים</th><th>יתרת שיעורים</th><th>סטטוס</th></tr></thead>
+              <tbody>
+                ${studentsWithStats.map(s => `
+                  <tr onclick="window.location.href='./teacher-student-detail.html?student=${s.id}'">
+                    <td><div class="t-name"><div class="avatar" style="width:30px;height:30px;font-size:13px">🎓</div>${escapeHtml(s.displayName || s.username)}</div></td>
+                    <td>${s.wordCount}</td>
+                    <td>${s.balance}</td>
+                    <td>${s.active === false
+                      ? '<span class="status-pill status-inactive">לא פעיל</span>'
+                      : s.balance <= 2
+                        ? '<span class="status-pill status-low">יתרה נמוכה</span>'
+                        : '<span class="status-pill status-active">פעיל</span>'}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
           </div>
-        `).join('');
+        `;
       } catch (e) {
         document.getElementById('list-area').innerHTML = '<div class="empty">לא ניתן היה לטעון את רשימת התלמידים.</div>';
       }
