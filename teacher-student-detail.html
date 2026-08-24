@@ -141,8 +141,6 @@
         <input type="text" id="new-en" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="apple" />
         <label for="new-he">עברית</label>
         <input type="text" id="new-he" autocomplete="off" placeholder="תפוח" />
-        <label for="new-sentence">משפט לדוגמה (אופציונלי)</label>
-        <input type="text" id="new-sentence" autocomplete="off" placeholder="I eat an apple every day" />
         <button class="btn primary" id="add-word-btn">הוסף למאגר של התלמיד</button>
         <button class="btn outline" id="word-form-cancel" style="display:none">ביטול</button>
         <div class="msg" id="add-msg"></div>
@@ -151,6 +149,20 @@
       <div class="card">
         <div class="section-title">מאגר המילים של התלמיד</div>
         <div id="words-area"><div class="empty">טוען...</div></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">📝 משפטים לדוגמה</div>
+        <label for="sentence-word-select">בחר מילה</label>
+        <select id="sentence-word-select" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:13px;padding:13px 14px;color:var(--text);font-size:15px;outline:none;margin-bottom:11px">
+          <option value="">— בחר מילה —</option>
+        </select>
+        <label for="sentence-en">משפט באנגלית (אופציונלי)</label>
+        <input type="text" id="sentence-en" autocomplete="off" placeholder="I eat an apple every day" />
+        <label for="sentence-he">משפט בעברית (אופציונלי)</label>
+        <input type="text" id="sentence-he" autocomplete="off" placeholder="אני אוכל תפוח כל יום" />
+        <button class="btn primary" id="save-sentence-btn">שמור משפט</button>
+        <div class="msg" id="sentence-msg"></div>
       </div>
     </div>
   </main>
@@ -282,21 +294,67 @@
       return [...arr].sort((a, b) => collator.compare((a.en || '').trim(), (b.en || '').trim()));
     }
 
+    function hasSentence(w) { return !!((w.sentenceEn || w.sentence || '').trim() || (w.sentenceHe || '').trim()); }
+
     function renderWords() {
       currentWords = sortWords(currentWords);
       const area = document.getElementById('words-area');
-      if (!currentWords.length) { area.innerHTML = '<div class="empty">עוד אין מילים במאגר של התלמיד</div>'; return; }
-      area.innerHTML = currentWords.map(w => `
-        <div class="wrow">
-          <span class="wen">${escapeHtml(w.en)}${w.sentence ? ' <span style="color:var(--accent2);font-size:11px">📝</span>' : ''}</span>
-          <span class="whe">${escapeHtml(w.he)}</span>
-          <button class="edit-btn" data-id="${escapeHtml(w.id)}" title="ערוך">✏️</button>
-          <button class="del-btn" data-id="${escapeHtml(w.id)}" title="מחק">🗑</button>
-        </div>
-      `).join('');
-      area.querySelectorAll('.edit-btn').forEach(btn => btn.addEventListener('click', () => startEditWord(btn.dataset.id)));
-      area.querySelectorAll('.del-btn').forEach(btn => btn.addEventListener('click', () => removeWord(btn.dataset.id)));
+      if (!currentWords.length) { area.innerHTML = '<div class="empty">עוד אין מילים במאגר של התלמיד</div>'; }
+      else {
+        area.innerHTML = currentWords.map(w => `
+          <div class="wrow">
+            <span class="wen">${escapeHtml(w.en)}${hasSentence(w) ? ' <span style="color:var(--accent2);font-size:11px">📝</span>' : ''}</span>
+            <span class="whe">${escapeHtml(w.he)}</span>
+            <button class="edit-btn" data-id="${escapeHtml(w.id)}" title="ערוך מילה">✏️</button>
+            <button class="edit-btn" data-id="${escapeHtml(w.id)}" data-sentence="1" title="ערוך משפט">📝</button>
+            <button class="del-btn" data-id="${escapeHtml(w.id)}" title="מחק">🗑</button>
+          </div>
+        `).join('');
+        area.querySelectorAll('.edit-btn:not([data-sentence])').forEach(btn => btn.addEventListener('click', () => startEditWord(btn.dataset.id)));
+        area.querySelectorAll('.edit-btn[data-sentence]').forEach(btn => btn.addEventListener('click', () => openSentenceEditor(btn.dataset.id)));
+        area.querySelectorAll('.del-btn').forEach(btn => btn.addEventListener('click', () => removeWord(btn.dataset.id)));
+      }
+      populateSentenceSelect();
     }
+
+    function populateSentenceSelect() {
+      const sel = document.getElementById('sentence-word-select');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">— בחר מילה —</option>' +
+        currentWords.map(w => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.en)} — ${escapeHtml(w.he)}</option>`).join('');
+      if (current && currentWords.find(w => w.id === current)) sel.value = current;
+    }
+
+    function openSentenceEditor(id) {
+      const sel = document.getElementById('sentence-word-select');
+      sel.value = id;
+      sel.dispatchEvent(new Event('change'));
+      sel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    document.getElementById('sentence-word-select').addEventListener('change', (e) => {
+      const w = currentWords.find(x => x.id === e.target.value);
+      document.getElementById('sentence-en').value = w ? (w.sentenceEn || w.sentence || '') : '';
+      document.getElementById('sentence-he').value = w ? (w.sentenceHe || '') : '';
+    });
+
+    document.getElementById('save-sentence-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('save-sentence-btn');
+      const id = document.getElementById('sentence-word-select').value;
+      if (!id) { showMsg('sentence-msg', 'יש לבחור מילה קודם.', 'error'); return; }
+      const sentenceEn = document.getElementById('sentence-en').value.trim();
+      const sentenceHe = document.getElementById('sentence-he').value.trim();
+      try {
+        setBusy(btn, true, 'שומר...');
+        await setDoc(doc(db, 'users', studentId, 'words', id), { sentenceEn, sentenceHe, sentence: sentenceEn }, { merge: true });
+        showMsg('sentence-msg', '✅ המשפט נשמר.', 'success');
+        await loadAll();
+      } catch (e) {
+        showMsg('sentence-msg', 'שגיאה: ' + (e?.message || 'נסה שוב.'), 'error');
+      } finally {
+        setBusy(btn, false);
+      }
+    });
 
     let editingWordId = null;
 
@@ -304,7 +362,6 @@
       const btn = document.getElementById('add-word-btn');
       const en = document.getElementById('new-en').value.trim();
       const he = document.getElementById('new-he').value.trim();
-      const sentence = document.getElementById('new-sentence').value.trim();
       if (!en || !he) { showMsg('add-msg', 'יש למלא גם אנגלית וגם עברית.', 'error'); return; }
       const dup = currentWords.find(w => w.en.toLowerCase() === en.toLowerCase() && w.id !== editingWordId);
       if (dup) { showMsg('add-msg', 'המילה כבר קיימת אצל התלמיד.', 'error'); return; }
@@ -312,17 +369,14 @@
       try {
         setBusy(btn, true, editingWordId ? 'מעדכן...' : 'מוסיף...');
         if (editingWordId) {
-          await setDoc(doc(db, 'users', studentId, 'words', editingWordId), { en, he, sentence });
+          await setDoc(doc(db, 'users', studentId, 'words', editingWordId), { en, he }, { merge: true });
           showMsg('add-msg', '✅ המילה עודכנה.', 'success');
           cancelEditWord();
         } else {
           const id = en.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 80) + '_' + Date.now();
-          const payload = { en, he };
-          if (sentence) payload.sentence = sentence;
-          await setDoc(doc(db, 'users', studentId, 'words', id), payload);
+          await setDoc(doc(db, 'users', studentId, 'words', id), { en, he });
           document.getElementById('new-en').value = '';
           document.getElementById('new-he').value = '';
-          document.getElementById('new-sentence').value = '';
           showMsg('add-msg', '✅ נוסף למאגר של התלמיד.', 'success');
         }
         await loadAll();
@@ -339,7 +393,6 @@
       editingWordId = id;
       document.getElementById('new-en').value = w.en;
       document.getElementById('new-he').value = w.he;
-      document.getElementById('new-sentence').value = w.sentence || '';
       document.getElementById('word-form-title').textContent = '✏️ עריכת מילה';
       document.getElementById('add-word-btn').textContent = 'עדכן מילה';
       document.getElementById('word-form-cancel').style.display = 'block';
@@ -350,7 +403,6 @@
       editingWordId = null;
       document.getElementById('new-en').value = '';
       document.getElementById('new-he').value = '';
-      document.getElementById('new-sentence').value = '';
       document.getElementById('word-form-title').textContent = '➕ הוסף מילה מרחוק';
       document.getElementById('add-word-btn').textContent = 'הוסף למאגר של התלמיד';
       document.getElementById('word-form-cancel').style.display = 'none';
