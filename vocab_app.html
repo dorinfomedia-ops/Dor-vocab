@@ -148,12 +148,21 @@ input[type=text]:focus{border-color:var(--accent2)}input:disabled{opacity:.6}
     <div style="font-size:15px;font-weight:600;color:var(--accent2);margin-bottom:12px" id="word-form-title">הוסף מילה חדשה ➕</div>
     <input type="text" id="new-en" placeholder="מילה באנגלית..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
     <input type="text" id="new-he" placeholder="תרגום בעברית..." autocomplete="off">
-    <input type="text" id="new-sentence" placeholder="משפט לדוגמה (אופציונלי)..." autocomplete="off">
     <button class="btn btn-p" id="word-form-submit" onclick="addWord()" style="margin:0">הוסף ✓</button>
     <button class="btn btn-o" id="word-form-cancel" onclick="cancelEditWord()" style="margin:8px 0 0;display:none">ביטול</button>
     <div id="add-msg" style="font-size:12px;margin-top:8px;color:var(--green);display:none">✅ נשמר בענן!</div>
   </div>
   <div class="card" id="words-list"></div>
+  <div class="card" style="background:var(--card2)">
+    <div style="font-size:15px;font-weight:600;color:var(--accent2);margin-bottom:12px">📝 משפטים לדוגמה</div>
+    <select id="sentence-word-select" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-size:15px;outline:none;margin-bottom:11px">
+      <option value="">— בחר מילה —</option>
+    </select>
+    <input type="text" id="sentence-en" placeholder="משפט באנגלית (אופציונלי)..." autocomplete="off">
+    <input type="text" id="sentence-he" placeholder="משפט בעברית (אופציונלי)..." autocomplete="off">
+    <button class="btn btn-p" id="save-sentence-btn" style="margin:0">שמור משפט</button>
+    <div id="sentence-msg" style="font-size:12px;margin-top:8px;color:var(--green);display:none">✅ נשמר!</div>
+  </div>
 </div>
 
 <nav class="nav">
@@ -333,7 +342,7 @@ function speak(text){
 let mode='',sWords=[],sIdx=0,cur=null,answered=false;
 window.startMode=function(m){
   if(m==='sentence'){
-    const candidates=words.filter(w=>w.sentence&&w.sentence.trim());
+    const candidates=words.filter(w=>(w.sentenceEn||w.sentence)&&(w.sentenceEn||w.sentence).trim());
     if(candidates.length<1){alert('אין עדיין משפטים לתרגול. בקש מהמורה להוסיף משפט לאחת המילים.');return;}
     mode=m;sWords=shuffle([...candidates]).slice(0,Math.min(10,candidates.length));
   }else{
@@ -428,16 +437,18 @@ window.checkListen=function(){
 let sentTokens=[],sentBank=[],sentAnswer=[],sentAttempts=0;
 function tokenizeSentence(s){return s.trim().split(/\s+/).filter(Boolean);}
 function isRTL(s){return /[\u0590-\u05FF]/.test(s);}
+function targetSentence(w){return w.sentenceEn||w.sentence||'';}
 function renderSentence(){
-  sentTokens=tokenizeSentence(cur.sentence);
+  const target=targetSentence(cur);
+  sentTokens=tokenizeSentence(target);
   sentBank=shuffle(sentTokens.map((t,i)=>({t,key:i+'_'+Math.random()})));
   sentAnswer=[];sentAttempts=0;
-  const dir=isRTL(cur.sentence)?'rtl':'ltr';
+  const dir=isRTL(target)?'rtl':'ltr';
   document.getElementById('sess-content').innerHTML=
     '<div class="card">'+
     '<p style="font-size:11px;color:var(--muted);margin-bottom:4px">המילה שלנו</p>'+
     '<p style="font-size:20px;font-weight:700;margin-bottom:16px">'+esc(cur.en)+' <span style="color:var(--muted);font-weight:400">— '+esc(cur.he)+'</span></p>'+
-    '<p class="sentence-hint">🧩 הרכב את המשפט</p>'+
+    '<p class="sentence-hint">🧩 הרכב את המשפט'+(cur.sentenceHe?' <span style="color:var(--muted)">('+esc(cur.sentenceHe)+')</span>':'')+'</p>'+
     '<div class="token-answer" id="sent-answer" style="direction:'+dir+'"></div>'+
     '<div class="token-bank" id="sent-bank" style="direction:'+dir+'"></div>'+
     '<div class="fb" id="fb"></div>'+
@@ -488,7 +499,7 @@ window.checkSentence=function(){
     answered=true;sTotal++;todayCnt++;
     saveStrength(cur.en,Math.min(2,(str[cur.en]||1)+1));
     document.getElementById('fb').className='fb show good';
-    document.getElementById('fb').innerHTML='🎉 מעולה!<br><span style="font-size:15px">'+highlightWord(cur.sentence,cur.en)+'</span>';
+    document.getElementById('fb').innerHTML='🎉 מעולה!<br><span style="font-size:15px">'+highlightWord(targetSentence(cur),cur.en)+'</span>';
     document.getElementById('sent-check').style.display='none';
     document.getElementById('sent-answer-btn').style.display='none';
     document.getElementById('bn').style.display='block';
@@ -511,7 +522,7 @@ window.revealSentence=function(){
   answered=true;sTotal++;todayCnt++;
   saveStrength(cur.en,Math.max(0,(str[cur.en]||1)-1));
   document.getElementById('fb').className='fb show good';
-  document.getElementById('fb').innerHTML='הנה המשפט 🙂<br><span style="font-size:15px">'+highlightWord(cur.sentence,cur.en)+'</span>';
+  document.getElementById('fb').innerHTML='הנה המשפט 🙂<br><span style="font-size:15px">'+highlightWord(targetSentence(cur),cur.en)+'</span>';
   document.getElementById('sent-check').style.display='none';
   document.getElementById('sent-answer-btn').style.display='none';
   document.getElementById('bn').style.display='block';
@@ -605,27 +616,22 @@ let editingWordId=null;
 window.addWord=async function(){
   const en=document.getElementById('new-en').value.trim();
   const he=document.getElementById('new-he').value.trim();
-  const sentence=document.getElementById('new-sentence').value.trim();
   if(!en||!he){alert('יש למלא גם אנגלית וגם עברית');return;}
   const dup=words.find(w=>w.en.toLowerCase()===en.toLowerCase()&&w.id!==editingWordId);
   if(dup){alert('המילה כבר קיימת!');return;}
 
   if(editingWordId){
     const oldWord=words.find(w=>w.id===editingWordId);
-    const payload={en,he,sentence};
-    await setDoc(doc(db,'users',uid,'words',editingWordId),payload);
+    await setDoc(doc(db,'users',uid,'words',editingWordId),{en,he},{merge:true});
     if(oldWord&&oldWord.en!==en&&str[oldWord.en]!==undefined){
       await saveStrength(en,str[oldWord.en]);
     }
     cancelEditWord();
   }else{
     const id=en.replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)+'_'+Date.now();
-    const payload={en,he};
-    if(sentence)payload.sentence=sentence;
-    await setDoc(doc(db,'users',uid,'words',id),payload);
+    await setDoc(doc(db,'users',uid,'words',id),{en,he});
     document.getElementById('new-en').value='';
     document.getElementById('new-he').value='';
-    document.getElementById('new-sentence').value='';
   }
   const msg=document.getElementById('add-msg');
   msg.style.display='block';setTimeout(()=>msg.style.display='none',2000);
@@ -636,7 +642,6 @@ window.startEditWord=function(id){
   editingWordId=id;
   document.getElementById('new-en').value=w.en;
   document.getElementById('new-he').value=w.he;
-  document.getElementById('new-sentence').value=w.sentence||'';
   document.getElementById('word-form-title').textContent='עריכת מילה ✏️';
   document.getElementById('word-form-submit').textContent='עדכן ✓';
   document.getElementById('word-form-cancel').style.display='block';
@@ -646,7 +651,6 @@ window.cancelEditWord=function(){
   editingWordId=null;
   document.getElementById('new-en').value='';
   document.getElementById('new-he').value='';
-  document.getElementById('new-sentence').value='';
   document.getElementById('word-form-title').textContent='הוסף מילה חדשה ➕';
   document.getElementById('word-form-submit').textContent='הוסף ✓';
   document.getElementById('word-form-cancel').style.display='none';
@@ -658,15 +662,46 @@ window.deleteWord=async function(id){
   await deleteDoc(doc(db,'users',uid,'words',id));
   if(editingWordId===id)cancelEditWord();
 };
+function hasSentence(w){return !!((w.sentenceEn||w.sentence||'').trim()||(w.sentenceHe||'').trim());}
 function renderWords(){
   document.getElementById('words-count').textContent=words.length+' מילים ברשימה';
   document.getElementById('words-list').innerHTML=words.map(w=>
-    '<div class="wrow"><span class="wen">'+w.en+(w.sentence?' <span style="color:var(--accent2);font-size:11px">📝</span>':'')+'</span><span class="whe">'+w.he+'</span>'+
+    '<div class="wrow"><span class="wen">'+w.en+(hasSentence(w)?' <span style="color:var(--accent2);font-size:11px">📝</span>':'')+'</span><span class="whe">'+w.he+'</span>'+
     '<div class="dot" style="background:'+['var(--red)','var(--yellow)','var(--green)'][str[w.en]||1]+'"></div>'+
-    '<button class="edit-btn" onclick="startEditWord(\''+esc(w.id)+'\')">✏️</button>'+
+    '<button class="edit-btn" onclick="startEditWord(\''+esc(w.id)+'\')" title="ערוך מילה">✏️</button>'+
+    '<button class="edit-btn" onclick="openSentenceEditor(\''+esc(w.id)+'\')" title="ערוך משפט">📝</button>'+
     '<button class="del-btn" onclick="deleteWord(\''+esc(w.id)+'\')">🗑</button></div>'
   ).join('');
+  populateSentenceSelect();
 }
+function populateSentenceSelect(){
+  const sel=document.getElementById('sentence-word-select');
+  if(!sel)return;
+  const current=sel.value;
+  sel.innerHTML='<option value="">— בחר מילה —</option>'+
+    words.map(w=>'<option value="'+esc(w.id)+'">'+w.en+' — '+w.he+'</option>').join('');
+  if(current&&words.find(w=>w.id===current))sel.value=current;
+}
+window.openSentenceEditor=function(id){
+  const sel=document.getElementById('sentence-word-select');
+  sel.value=id;
+  sel.dispatchEvent(new Event('change'));
+  sel.scrollIntoView({behavior:'smooth',block:'center'});
+};
+document.getElementById('sentence-word-select').addEventListener('change',e=>{
+  const w=words.find(x=>x.id===e.target.value);
+  document.getElementById('sentence-en').value=w?(w.sentenceEn||w.sentence||''):'';
+  document.getElementById('sentence-he').value=w?(w.sentenceHe||''):'';
+});
+document.getElementById('save-sentence-btn').addEventListener('click',async()=>{
+  const id=document.getElementById('sentence-word-select').value;
+  if(!id){alert('יש לבחור מילה קודם');return;}
+  const sentenceEn=document.getElementById('sentence-en').value.trim();
+  const sentenceHe=document.getElementById('sentence-he').value.trim();
+  await setDoc(doc(db,'users',uid,'words',id),{sentenceEn,sentenceHe,sentence:sentenceEn},{merge:true});
+  const msg=document.getElementById('sentence-msg');
+  msg.style.display='block';setTimeout(()=>msg.style.display='none',2000);
+});
 
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function sortWords(arr){
