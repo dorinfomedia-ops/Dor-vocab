@@ -154,14 +154,20 @@ input[type=text]:focus{border-color:var(--accent2)}input:disabled{opacity:.6}
   </div>
   <div class="card" id="words-list"></div>
   <div class="card" style="background:var(--card2)">
-    <div style="font-size:15px;font-weight:600;color:var(--accent2);margin-bottom:12px">📝 משפטים לדוגמה</div>
+    <div style="font-size:15px;font-weight:600;color:var(--accent2);margin-bottom:12px" id="sentence-form-title">📝 הוסף משפט לתרגול</div>
+    <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">קישור למילה (אופציונלי)</label>
     <select id="sentence-word-select" style="width:100%;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 14px;color:var(--text);font-size:15px;outline:none;margin-bottom:11px">
-      <option value="">— בחר מילה —</option>
+      <option value="">— ללא קישור (משפט עצמאי) —</option>
     </select>
-    <input type="text" id="sentence-en" placeholder="משפט באנגלית (אופציונלי)..." autocomplete="off">
-    <input type="text" id="sentence-he" placeholder="משפט בעברית (אופציונלי)..." autocomplete="off">
-    <button class="btn btn-p" id="save-sentence-btn" style="margin:0">שמור משפט</button>
+    <input type="text" id="sentence-text" placeholder="המשפט לתרגול (אנגלית)..." autocomplete="off">
+    <input type="text" id="sentence-translation" placeholder="תרגום לעברית (אופציונלי)..." autocomplete="off">
+    <button class="btn btn-p" id="save-sentence-btn" style="margin:0">הוסף משפט</button>
+    <button class="btn btn-o" id="sentence-form-cancel" style="margin:8px 0 0;display:none">ביטול</button>
     <div id="sentence-msg" style="font-size:12px;margin-top:8px;color:var(--green);display:none">✅ נשמר!</div>
+  </div>
+  <div class="card" id="sentences-list-card">
+    <div style="font-size:14px;font-weight:600;color:var(--accent2);margin-bottom:10px">רשימת משפטים</div>
+    <div id="sentences-list"></div>
   </div>
 </div>
 
@@ -180,6 +186,7 @@ import{requireRole}from"./auth-shared.js";
 
 let uid=null; // מזהה התלמיד המחובר - כל הנתונים ממוענים לפי זה
 let words=[],str={},sCorrect=0,sTotal=0,todayCnt=0;
+let sentences=[];
 const t0=Date.now();
 let sessionStartTime=Date.now();
 let streak=1;
@@ -227,6 +234,7 @@ function setSS(state,text){
 }
 
 function wordsCol(){ return collection(db,'users',uid,'words'); }
+function sentencesCol(){ return collection(db,'users',uid,'sentences'); }
 function strengthCol(){ return collection(db,'users',uid,'strength'); }
 function sessionsCol(){ return collection(db,'users',uid,'sessions'); }
 
@@ -294,6 +302,11 @@ function initApp(){
     setSS('err','⚠️ שגיאת חיבור לענן');
   });
 
+  onSnapshot(sentencesCol(),(snap)=>{
+    sentences=snap.docs.map(d=>({id:d.id,...d.data()}));
+    renderSentencesList();
+  },(e)=>{});
+
   (async()=>{
     try{
       const snap=await getDocs(strengthCol());
@@ -342,9 +355,9 @@ function speak(text){
 let mode='',sWords=[],sIdx=0,cur=null,answered=false;
 window.startMode=function(m){
   if(m==='sentence'){
-    const candidates=words.filter(w=>(w.sentenceEn||w.sentence)&&(w.sentenceEn||w.sentence).trim());
-    if(candidates.length<1){alert('אין עדיין משפטים לתרגול. בקש מהמורה להוסיף משפט לאחת המילים.');return;}
-    mode=m;sWords=shuffle([...candidates]).slice(0,Math.min(10,candidates.length));
+    const candidates=sentencePool();
+    if(candidates.length<1){alert('אין עדיין משפטים לתרגול. אפשר להוסיף בלשונית "מילים".');return;}
+    mode=m;sWords=shuffle(candidates).slice(0,Math.min(10,candidates.length));
   }else{
     if(words.length<4){alert('צריך לפחות 4 מילים! לך ללשונית "מילים" והוסף עוד.');return;}
     mode=m;sWords=shuffle([...words]).slice(0,Math.min(10,words.length));
@@ -435,20 +448,31 @@ window.checkListen=function(){
 };
 // SENTENCE BUILDER
 let sentTokens=[],sentBank=[],sentAnswer=[],sentAttempts=0;
+function sentencePool(){
+  // מאגר משפטים: מ-sentences (חדש, יכול להיות עצמאי או מקושר) + תאימות לאחור לשדה הישן על המילה עצמה
+  const fromCollection=sentences.filter(s=>s.text&&s.text.trim()).map(s=>{
+    const w=s.wordId?words.find(x=>x.id===s.wordId):null;
+    return {text:s.text,translation:s.translation||'',wordEn:w?w.en:null,wordHe:w?w.he:null};
+  });
+  const legacy=words.filter(w=>(w.sentenceEn||w.sentence)&&(w.sentenceEn||w.sentence).trim()&&!sentences.some(s=>s.wordId===w.id))
+    .map(w=>({text:w.sentenceEn||w.sentence,translation:w.sentenceHe||'',wordEn:w.en,wordHe:w.he}));
+  return [...fromCollection,...legacy];
+}
 function tokenizeSentence(s){return s.trim().split(/\s+/).filter(Boolean);}
 function isRTL(s){return /[\u0590-\u05FF]/.test(s);}
-function targetSentence(w){return w.sentenceEn||w.sentence||'';}
 function renderSentence(){
-  const target=targetSentence(cur);
+  const target=cur.text;
   sentTokens=tokenizeSentence(target);
   sentBank=shuffle(sentTokens.map((t,i)=>({t,key:i+'_'+Math.random()})));
   sentAnswer=[];sentAttempts=0;
   const dir=isRTL(target)?'rtl':'ltr';
+  const header=cur.wordEn?
+    ('<p style="font-size:11px;color:var(--muted);margin-bottom:4px">המילה שלנו</p>'+
+     '<p style="font-size:20px;font-weight:700;margin-bottom:16px">'+esc(cur.wordEn)+' <span style="color:var(--muted);font-weight:400">— '+esc(cur.wordHe)+'</span></p>'):
+    ('<p style="font-size:11px;color:var(--muted);margin-bottom:16px">תרגול משפט</p>');
   document.getElementById('sess-content').innerHTML=
-    '<div class="card">'+
-    '<p style="font-size:11px;color:var(--muted);margin-bottom:4px">המילה שלנו</p>'+
-    '<p style="font-size:20px;font-weight:700;margin-bottom:16px">'+esc(cur.en)+' <span style="color:var(--muted);font-weight:400">— '+esc(cur.he)+'</span></p>'+
-    '<p class="sentence-hint">🧩 הרכב את המשפט'+(cur.sentenceHe?' <span style="color:var(--muted)">('+esc(cur.sentenceHe)+')</span>':'')+'</p>'+
+    '<div class="card">'+header+
+    '<p class="sentence-hint">🧩 הרכב את המשפט'+(cur.translation?' <span style="color:var(--muted)">('+esc(cur.translation)+')</span>':'')+'</p>'+
     '<div class="token-answer" id="sent-answer" style="direction:'+dir+'"></div>'+
     '<div class="token-bank" id="sent-bank" style="direction:'+dir+'"></div>'+
     '<div class="fb" id="fb"></div>'+
@@ -482,6 +506,7 @@ window.unpickToken=function(key){
   renderSentTokens();
 };
 function highlightWord(sentence,word){
+  if(!word)return esc(sentence);
   const re=new RegExp('('+word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','i');
   return esc(sentence).replace(re,'<strong style="color:var(--accent2)">$1</strong>');
 }
@@ -497,9 +522,9 @@ window.checkSentence=function(){
   const ok=built===target;
   if(ok){
     answered=true;sTotal++;todayCnt++;
-    saveStrength(cur.en,Math.min(2,(str[cur.en]||1)+1));
+    if(cur.wordEn)saveStrength(cur.wordEn,Math.min(2,(str[cur.wordEn]||1)+1));
     document.getElementById('fb').className='fb show good';
-    document.getElementById('fb').innerHTML='🎉 מעולה!<br><span style="font-size:15px">'+highlightWord(targetSentence(cur),cur.en)+'</span>';
+    document.getElementById('fb').innerHTML='🎉 מעולה!<br><span style="font-size:15px">'+highlightWord(cur.text,cur.wordEn)+'</span>';
     document.getElementById('sent-check').style.display='none';
     document.getElementById('sent-answer-btn').style.display='none';
     document.getElementById('bn').style.display='block';
@@ -520,9 +545,9 @@ window.checkSentence=function(){
 window.revealSentence=function(){
   if(answered)return;
   answered=true;sTotal++;todayCnt++;
-  saveStrength(cur.en,Math.max(0,(str[cur.en]||1)-1));
+  if(cur.wordEn)saveStrength(cur.wordEn,Math.max(0,(str[cur.wordEn]||1)-1));
   document.getElementById('fb').className='fb show good';
-  document.getElementById('fb').innerHTML='הנה המשפט 🙂<br><span style="font-size:15px">'+highlightWord(targetSentence(cur),cur.en)+'</span>';
+  document.getElementById('fb').innerHTML='הנה המשפט 🙂<br><span style="font-size:15px">'+highlightWord(cur.text,cur.wordEn)+'</span>';
   document.getElementById('sent-check').style.display='none';
   document.getElementById('sent-answer-btn').style.display='none';
   document.getElementById('bn').style.display='block';
@@ -662,7 +687,7 @@ window.deleteWord=async function(id){
   await deleteDoc(doc(db,'users',uid,'words',id));
   if(editingWordId===id)cancelEditWord();
 };
-function hasSentence(w){return !!((w.sentenceEn||w.sentence||'').trim()||(w.sentenceHe||'').trim());}
+function hasSentence(w){return !!((w.sentenceEn||w.sentence||'').trim())||sentences.some(s=>s.wordId===w.id);}
 function renderWords(){
   document.getElementById('words-count').textContent=words.length+' מילים ברשימה';
   document.getElementById('words-list').innerHTML=words.map(w=>
@@ -673,35 +698,87 @@ function renderWords(){
     '<button class="del-btn" onclick="deleteWord(\''+esc(w.id)+'\')">🗑</button></div>'
   ).join('');
   populateSentenceSelect();
+  renderSentencesList();
 }
+let editingSentenceId=null;
+
 function populateSentenceSelect(){
   const sel=document.getElementById('sentence-word-select');
   if(!sel)return;
   const current=sel.value;
-  sel.innerHTML='<option value="">— בחר מילה —</option>'+
+  sel.innerHTML='<option value="">— ללא קישור (משפט עצמאי) —</option>'+
     words.map(w=>'<option value="'+esc(w.id)+'">'+w.en+' — '+w.he+'</option>').join('');
   if(current&&words.find(w=>w.id===current))sel.value=current;
 }
-window.openSentenceEditor=function(id){
+
+window.openSentenceEditor=function(wordId){
+  // קפיצה ליצירת משפט חדש המקושר למילה מסוימת (מכפתור 📝 ליד מילה ברשימה)
+  cancelEditSentence();
   const sel=document.getElementById('sentence-word-select');
-  sel.value=id;
-  sel.dispatchEvent(new Event('change'));
+  sel.value=wordId;
+  document.getElementById('sentence-text').focus();
   sel.scrollIntoView({behavior:'smooth',block:'center'});
 };
-document.getElementById('sentence-word-select').addEventListener('change',e=>{
-  const w=words.find(x=>x.id===e.target.value);
-  document.getElementById('sentence-en').value=w?(w.sentenceEn||w.sentence||''):'';
-  document.getElementById('sentence-he').value=w?(w.sentenceHe||''):'';
-});
+
+window.startEditSentence=function(id){
+  const s=sentences.find(x=>x.id===id);
+  if(!s)return;
+  editingSentenceId=id;
+  document.getElementById('sentence-word-select').value=s.wordId||'';
+  document.getElementById('sentence-text').value=s.text||'';
+  document.getElementById('sentence-translation').value=s.translation||'';
+  document.getElementById('sentence-form-title').textContent='✏️ עריכת משפט';
+  document.getElementById('save-sentence-btn').textContent='עדכן משפט';
+  document.getElementById('sentence-form-cancel').style.display='block';
+  document.getElementById('sentence-word-select').scrollIntoView({behavior:'smooth',block:'center'});
+};
+
+function cancelEditSentence(){
+  editingSentenceId=null;
+  document.getElementById('sentence-word-select').value='';
+  document.getElementById('sentence-text').value='';
+  document.getElementById('sentence-translation').value='';
+  document.getElementById('sentence-form-title').textContent='📝 הוסף משפט לתרגול';
+  document.getElementById('save-sentence-btn').textContent='הוסף משפט';
+  document.getElementById('sentence-form-cancel').style.display='none';
+}
+document.getElementById('sentence-form-cancel').addEventListener('click',cancelEditSentence);
+
 document.getElementById('save-sentence-btn').addEventListener('click',async()=>{
-  const id=document.getElementById('sentence-word-select').value;
-  if(!id){alert('יש לבחור מילה קודם');return;}
-  const sentenceEn=document.getElementById('sentence-en').value.trim();
-  const sentenceHe=document.getElementById('sentence-he').value.trim();
-  await setDoc(doc(db,'users',uid,'words',id),{sentenceEn,sentenceHe,sentence:sentenceEn},{merge:true});
+  const text=document.getElementById('sentence-text').value.trim();
+  if(!text){alert('יש להזין משפט לתרגול');return;}
+  const translation=document.getElementById('sentence-translation').value.trim();
+  const wordId=document.getElementById('sentence-word-select').value||null;
+  const payload={text,translation,wordId};
+  if(editingSentenceId){
+    await setDoc(doc(db,'users',uid,'sentences',editingSentenceId),payload,{merge:true});
+  }else{
+    await addDoc(sentencesCol(),payload);
+  }
+  cancelEditSentence();
   const msg=document.getElementById('sentence-msg');
   msg.style.display='block';setTimeout(()=>msg.style.display='none',2000);
 });
+
+window.deleteSentence=async function(id){
+  if(!confirm('למחוק את המשפט הזה?'))return;
+  await deleteDoc(doc(db,'users',uid,'sentences',id));
+  if(editingSentenceId===id)cancelEditSentence();
+};
+
+function renderSentencesList(){
+  const area=document.getElementById('sentences-list');
+  if(!area)return;
+  if(!sentences.length){area.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0">עוד אין משפטים לתרגול</div>';return;}
+  area.innerHTML=sentences.map(s=>{
+    const w=s.wordId?words.find(x=>x.id===s.wordId):null;
+    const linkLabel=w?('🔗 '+w.en):'עצמאי';
+    return '<div class="wrow"><span class="wen" style="flex:2">'+esc(s.text)+'</span>'+
+      '<span class="whe" style="font-size:11px;color:var(--muted)">'+linkLabel+'</span>'+
+      '<button class="edit-btn" onclick="startEditSentence(\''+esc(s.id)+'\')">✏️</button>'+
+      '<button class="del-btn" onclick="deleteSentence(\''+esc(s.id)+'\')">🗑</button></div>';
+  }).join('');
+}
 
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function sortWords(arr){
