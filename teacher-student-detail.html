@@ -36,6 +36,7 @@
     .wen{font-weight:600;direction:ltr;flex:1}.whe{color:var(--muted);flex:1;text-align:right}
     .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
     .del-btn{background:none;border:none;color:var(--red);font-size:16px;cursor:pointer;padding:2px 6px;flex-shrink:0}
+    .edit-btn{background:none;border:none;color:var(--accent2);font-size:15px;cursor:pointer;padding:2px 6px;flex-shrink:0}
     .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 0}
     .loading{text-align:center;color:var(--muted);font-size:14px;padding:40px 0}
     label{display:block;font-size:12px;color:var(--muted);margin:0 3px 7px}
@@ -135,12 +136,15 @@
       </div>
 
       <div class="card">
-        <div class="section-title">➕ הוסף מילה מרחוק</div>
+        <div class="section-title" id="word-form-title">➕ הוסף מילה מרחוק</div>
         <label for="new-en">אנגלית</label>
         <input type="text" id="new-en" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="apple" />
         <label for="new-he">עברית</label>
         <input type="text" id="new-he" autocomplete="off" placeholder="תפוח" />
+        <label for="new-sentence">משפט לדוגמה (אופציונלי)</label>
+        <input type="text" id="new-sentence" autocomplete="off" placeholder="I eat an apple every day" />
         <button class="btn primary" id="add-word-btn">הוסף למאגר של התלמיד</button>
+        <button class="btn outline" id="word-form-cancel" style="display:none">ביטול</button>
         <div class="msg" id="add-msg"></div>
       </div>
 
@@ -209,12 +213,15 @@
       let lessonsSnap = { docs: [], empty: true };
       let paymentsSnap = { docs: [], empty: true };
       try {
-        lessonsSnap = await getDocs(query(collection(db, 'lessons'), where('studentId', '==', studentId), where('teacherId', '==', currentUserUid), orderBy('createdAt', 'desc'), limit(10)));
+        lessonsSnap = await getDocs(query(collection(db, 'lessons'), where('studentId', '==', studentId), where('teacherId', '==', currentUserUid)));
+        // מיון בצד הלקוח (לא בשרת) כדי לא לדרוש אינדקס מורכב ב-Firestore
+        lessonsSnap = { docs: lessonsSnap.docs.sort((a, b) => (b.data().createdAt || '').localeCompare(a.data().createdAt || '')).slice(0, 10), empty: lessonsSnap.empty };
       } catch (e) {
         document.getElementById('lessons-area').innerHTML = '<div class="empty">אין עדיין הרשאה לטעון שיעורים (firestore.rules)</div>';
       }
       try {
-        paymentsSnap = await getDocs(query(collection(db, 'payments'), where('studentId', '==', studentId), where('teacherId', '==', currentUserUid), orderBy('createdAt', 'desc'), limit(10)));
+        paymentsSnap = await getDocs(query(collection(db, 'payments'), where('studentId', '==', studentId), where('teacherId', '==', currentUserUid)));
+        paymentsSnap = { docs: paymentsSnap.docs.sort((a, b) => (b.data().createdAt || '').localeCompare(a.data().createdAt || '')).slice(0, 10), empty: paymentsSnap.empty };
       } catch (e) {
         document.getElementById('payments-area').innerHTML = '<div class="empty">אין עדיין הרשאה לטעון תשלומים (firestore.rules)</div>';
       }
@@ -270,45 +277,92 @@
       }
     }
 
+    function sortWords(arr) {
+      const collator = new Intl.Collator('en', { sensitivity: 'base' });
+      return [...arr].sort((a, b) => collator.compare((a.en || '').trim(), (b.en || '').trim()));
+    }
+
     function renderWords() {
+      currentWords = sortWords(currentWords);
       const area = document.getElementById('words-area');
       if (!currentWords.length) { area.innerHTML = '<div class="empty">עוד אין מילים במאגר של התלמיד</div>'; return; }
       area.innerHTML = currentWords.map(w => `
         <div class="wrow">
-          <span class="wen">${escapeHtml(w.en)}</span>
+          <span class="wen">${escapeHtml(w.en)}${w.sentence ? ' <span style="color:var(--accent2);font-size:11px">📝</span>' : ''}</span>
           <span class="whe">${escapeHtml(w.he)}</span>
+          <button class="edit-btn" data-id="${escapeHtml(w.id)}" title="ערוך">✏️</button>
           <button class="del-btn" data-id="${escapeHtml(w.id)}" title="מחק">🗑</button>
         </div>
       `).join('');
+      area.querySelectorAll('.edit-btn').forEach(btn => btn.addEventListener('click', () => startEditWord(btn.dataset.id)));
       area.querySelectorAll('.del-btn').forEach(btn => btn.addEventListener('click', () => removeWord(btn.dataset.id)));
     }
+
+    let editingWordId = null;
 
     document.getElementById('add-word-btn').addEventListener('click', async () => {
       const btn = document.getElementById('add-word-btn');
       const en = document.getElementById('new-en').value.trim();
       const he = document.getElementById('new-he').value.trim();
+      const sentence = document.getElementById('new-sentence').value.trim();
       if (!en || !he) { showMsg('add-msg', 'יש למלא גם אנגלית וגם עברית.', 'error'); return; }
-      if (currentWords.find(w => w.en.toLowerCase() === en.toLowerCase())) { showMsg('add-msg', 'המילה כבר קיימת אצל התלמיד.', 'error'); return; }
+      const dup = currentWords.find(w => w.en.toLowerCase() === en.toLowerCase() && w.id !== editingWordId);
+      if (dup) { showMsg('add-msg', 'המילה כבר קיימת אצל התלמיד.', 'error'); return; }
+
       try {
-        setBusy(btn, true, 'מוסיף...');
-        const id = en.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 80) + '_' + Date.now();
-        await setDoc(doc(db, 'users', studentId, 'words', id), { en, he });
-        document.getElementById('new-en').value = '';
-        document.getElementById('new-he').value = '';
-        showMsg('add-msg', '✅ נוסף למאגר של התלמיד.', 'success');
+        setBusy(btn, true, editingWordId ? 'מעדכן...' : 'מוסיף...');
+        if (editingWordId) {
+          await setDoc(doc(db, 'users', studentId, 'words', editingWordId), { en, he, sentence });
+          showMsg('add-msg', '✅ המילה עודכנה.', 'success');
+          cancelEditWord();
+        } else {
+          const id = en.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 80) + '_' + Date.now();
+          const payload = { en, he };
+          if (sentence) payload.sentence = sentence;
+          await setDoc(doc(db, 'users', studentId, 'words', id), payload);
+          document.getElementById('new-en').value = '';
+          document.getElementById('new-he').value = '';
+          document.getElementById('new-sentence').value = '';
+          showMsg('add-msg', '✅ נוסף למאגר של התלמיד.', 'success');
+        }
         await loadAll();
       } catch (e) {
-        showMsg('add-msg', 'שגיאה בהוספה: ' + (e?.message || 'נסה שוב.'), 'error');
+        showMsg('add-msg', 'שגיאה: ' + (e?.message || 'נסה שוב.'), 'error');
       } finally {
         setBusy(btn, false);
       }
     });
+
+    window.startEditWord = function(id) {
+      const w = currentWords.find(x => x.id === id);
+      if (!w) return;
+      editingWordId = id;
+      document.getElementById('new-en').value = w.en;
+      document.getElementById('new-he').value = w.he;
+      document.getElementById('new-sentence').value = w.sentence || '';
+      document.getElementById('word-form-title').textContent = '✏️ עריכת מילה';
+      document.getElementById('add-word-btn').textContent = 'עדכן מילה';
+      document.getElementById('word-form-cancel').style.display = 'block';
+      document.getElementById('new-en').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    function cancelEditWord() {
+      editingWordId = null;
+      document.getElementById('new-en').value = '';
+      document.getElementById('new-he').value = '';
+      document.getElementById('new-sentence').value = '';
+      document.getElementById('word-form-title').textContent = '➕ הוסף מילה מרחוק';
+      document.getElementById('add-word-btn').textContent = 'הוסף למאגר של התלמיד';
+      document.getElementById('word-form-cancel').style.display = 'none';
+    }
+    document.getElementById('word-form-cancel').addEventListener('click', cancelEditWord);
 
     async function removeWord(id) {
       const word = currentWords.find(w => w.id === id);
       if (!confirm(`למחוק את "${word?.en}" מהמאגר של התלמיד?`)) return;
       try {
         await deleteDoc(doc(db, 'users', studentId, 'words', id));
+        if (editingWordId === id) cancelEditWord();
         await loadAll();
       } catch (e) {
         alert('שגיאה במחיקה: ' + (e?.message || 'נסה שוב.'));
