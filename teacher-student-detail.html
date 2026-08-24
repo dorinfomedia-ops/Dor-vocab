@@ -152,17 +152,23 @@
       </div>
 
       <div class="card">
-        <div class="section-title">📝 משפטים לדוגמה</div>
-        <label for="sentence-word-select">בחר מילה</label>
+        <div class="section-title" id="sentence-form-title">📝 הוסף משפט לתרגול</div>
+        <label for="sentence-word-select">קישור למילה (אופציונלי)</label>
         <select id="sentence-word-select" style="width:100%;background:var(--card2);border:1px solid var(--border);border-radius:13px;padding:13px 14px;color:var(--text);font-size:15px;outline:none;margin-bottom:11px">
-          <option value="">— בחר מילה —</option>
+          <option value="">— ללא קישור (משפט עצמאי) —</option>
         </select>
-        <label for="sentence-en">משפט באנגלית (אופציונלי)</label>
-        <input type="text" id="sentence-en" autocomplete="off" placeholder="I eat an apple every day" />
-        <label for="sentence-he">משפט בעברית (אופציונלי)</label>
-        <input type="text" id="sentence-he" autocomplete="off" placeholder="אני אוכל תפוח כל יום" />
-        <button class="btn primary" id="save-sentence-btn">שמור משפט</button>
+        <label for="sentence-text">המשפט לתרגול (אנגלית)</label>
+        <input type="text" id="sentence-text" autocomplete="off" placeholder="I eat an apple every day" />
+        <label for="sentence-translation">תרגום לעברית (אופציונלי)</label>
+        <input type="text" id="sentence-translation" autocomplete="off" placeholder="אני אוכל תפוח כל יום" />
+        <button class="btn primary" id="save-sentence-btn">הוסף משפט</button>
+        <button class="btn outline" id="sentence-form-cancel" style="display:none">ביטול</button>
         <div class="msg" id="sentence-msg"></div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">רשימת משפטים</div>
+        <div id="sentences-area"><div class="empty">עוד אין משפטים לתרגול</div></div>
       </div>
     </div>
   </main>
@@ -175,6 +181,7 @@
 
     const studentId = new URLSearchParams(window.location.search).get('student');
     let currentWords = [];
+    let currentSentences = [];
     let currentUserUid = null;
 
     onAuthStateChanged(auth, async (user) => {
@@ -214,11 +221,13 @@
 
     async function loadAll() {
       // מילים/סשנים/חוזק - הפונקציונליות המקורית שכבר עבדה, לא תלויה בהרשאות החדשות
-      const [wordsSnap, sessionsSnap, strengthSnap] = await Promise.all([
+      const [wordsSnap, sessionsSnap, strengthSnap, sentencesSnap] = await Promise.all([
         getDocs(collection(db, 'users', studentId, 'words')),
         getDocs(query(collection(db, 'users', studentId, 'sessions'), orderBy('timestamp', 'desc'), limit(5))),
-        getDocs(collection(db, 'users', studentId, 'strength'))
+        getDocs(collection(db, 'users', studentId, 'strength')),
+        getDocs(collection(db, 'users', studentId, 'sentences'))
       ]);
+      currentSentences = sentencesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
       // שיעורים/תשלומים - אוספים חדשים שעלולים להיכשל עד שfirestore.rules יעודכן.
       // נכשלים "בשקט" כדי לא להפיל את שאר העמוד.
@@ -294,7 +303,7 @@
       return [...arr].sort((a, b) => collator.compare((a.en || '').trim(), (b.en || '').trim()));
     }
 
-    function hasSentence(w) { return !!((w.sentenceEn || w.sentence || '').trim() || (w.sentenceHe || '').trim()); }
+    function hasSentence(w) { return !!((w.sentenceEn || w.sentence || '').trim()) || currentSentences.some(s => s.wordId === w.id); }
 
     function renderWords() {
       currentWords = sortWords(currentWords);
@@ -306,7 +315,7 @@
             <span class="wen">${escapeHtml(w.en)}${hasSentence(w) ? ' <span style="color:var(--accent2);font-size:11px">📝</span>' : ''}</span>
             <span class="whe">${escapeHtml(w.he)}</span>
             <button class="edit-btn" data-id="${escapeHtml(w.id)}" title="ערוך מילה">✏️</button>
-            <button class="edit-btn" data-id="${escapeHtml(w.id)}" data-sentence="1" title="ערוך משפט">📝</button>
+            <button class="edit-btn" data-id="${escapeHtml(w.id)}" data-sentence="1" title="הוסף משפט למילה זו">📝</button>
             <button class="del-btn" data-id="${escapeHtml(w.id)}" title="מחק">🗑</button>
           </div>
         `).join('');
@@ -315,38 +324,65 @@
         area.querySelectorAll('.del-btn').forEach(btn => btn.addEventListener('click', () => removeWord(btn.dataset.id)));
       }
       populateSentenceSelect();
+      renderSentencesList();
     }
 
     function populateSentenceSelect() {
       const sel = document.getElementById('sentence-word-select');
       const current = sel.value;
-      sel.innerHTML = '<option value="">— בחר מילה —</option>' +
+      sel.innerHTML = '<option value="">— ללא קישור (משפט עצמאי) —</option>' +
         currentWords.map(w => `<option value="${escapeHtml(w.id)}">${escapeHtml(w.en)} — ${escapeHtml(w.he)}</option>`).join('');
       if (current && currentWords.find(w => w.id === current)) sel.value = current;
     }
 
-    function openSentenceEditor(id) {
-      const sel = document.getElementById('sentence-word-select');
-      sel.value = id;
-      sel.dispatchEvent(new Event('change'));
-      sel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    let editingSentenceId = null;
 
-    document.getElementById('sentence-word-select').addEventListener('change', (e) => {
-      const w = currentWords.find(x => x.id === e.target.value);
-      document.getElementById('sentence-en').value = w ? (w.sentenceEn || w.sentence || '') : '';
-      document.getElementById('sentence-he').value = w ? (w.sentenceHe || '') : '';
-    });
+    window.openSentenceEditor = function(wordId) {
+      cancelEditSentence();
+      const sel = document.getElementById('sentence-word-select');
+      sel.value = wordId;
+      document.getElementById('sentence-text').focus();
+      sel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    window.startEditSentence = function(id) {
+      const s = currentSentences.find(x => x.id === id);
+      if (!s) return;
+      editingSentenceId = id;
+      document.getElementById('sentence-word-select').value = s.wordId || '';
+      document.getElementById('sentence-text').value = s.text || '';
+      document.getElementById('sentence-translation').value = s.translation || '';
+      document.getElementById('sentence-form-title').textContent = '✏️ עריכת משפט';
+      document.getElementById('save-sentence-btn').textContent = 'עדכן משפט';
+      document.getElementById('sentence-form-cancel').style.display = 'block';
+      document.getElementById('sentence-word-select').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+
+    function cancelEditSentence() {
+      editingSentenceId = null;
+      document.getElementById('sentence-word-select').value = '';
+      document.getElementById('sentence-text').value = '';
+      document.getElementById('sentence-translation').value = '';
+      document.getElementById('sentence-form-title').textContent = '📝 הוסף משפט לתרגול';
+      document.getElementById('save-sentence-btn').textContent = 'הוסף משפט';
+      document.getElementById('sentence-form-cancel').style.display = 'none';
+    }
+    document.getElementById('sentence-form-cancel').addEventListener('click', cancelEditSentence);
 
     document.getElementById('save-sentence-btn').addEventListener('click', async () => {
       const btn = document.getElementById('save-sentence-btn');
-      const id = document.getElementById('sentence-word-select').value;
-      if (!id) { showMsg('sentence-msg', 'יש לבחור מילה קודם.', 'error'); return; }
-      const sentenceEn = document.getElementById('sentence-en').value.trim();
-      const sentenceHe = document.getElementById('sentence-he').value.trim();
+      const text = document.getElementById('sentence-text').value.trim();
+      if (!text) { showMsg('sentence-msg', 'יש להזין משפט לתרגול.', 'error'); return; }
+      const translation = document.getElementById('sentence-translation').value.trim();
+      const wordId = document.getElementById('sentence-word-select').value || null;
       try {
         setBusy(btn, true, 'שומר...');
-        await setDoc(doc(db, 'users', studentId, 'words', id), { sentenceEn, sentenceHe, sentence: sentenceEn }, { merge: true });
+        if (editingSentenceId) {
+          await setDoc(doc(db, 'users', studentId, 'sentences', editingSentenceId), { text, translation, wordId }, { merge: true });
+        } else {
+          await addDoc(collection(db, 'users', studentId, 'sentences'), { text, translation, wordId });
+        }
+        cancelEditSentence();
         showMsg('sentence-msg', '✅ המשפט נשמר.', 'success');
         await loadAll();
       } catch (e) {
@@ -355,6 +391,35 @@
         setBusy(btn, false);
       }
     });
+
+    window.deleteSentence = async function(id) {
+      if (!confirm('למחוק את המשפט הזה?')) return;
+      try {
+        await deleteDoc(doc(db, 'users', studentId, 'sentences', id));
+        if (editingSentenceId === id) cancelEditSentence();
+        await loadAll();
+      } catch (e) {
+        alert('שגיאה במחיקה: ' + (e?.message || 'נסה שוב.'));
+      }
+    };
+
+    function renderSentencesList() {
+      const area = document.getElementById('sentences-area');
+      if (!area) return;
+      if (!currentSentences.length) { area.innerHTML = '<div class="empty">עוד אין משפטים לתרגול</div>'; return; }
+      area.innerHTML = currentSentences.map(s => {
+        const w = s.wordId ? currentWords.find(x => x.id === s.wordId) : null;
+        const linkLabel = w ? ('🔗 ' + escapeHtml(w.en)) : 'עצמאי';
+        return `<div class="wrow">
+          <span class="wen" style="flex:2">${escapeHtml(s.text)}</span>
+          <span class="whe" style="font-size:11px">${linkLabel}</span>
+          <button class="edit-btn" data-id="${escapeHtml(s.id)}" title="ערוך">✏️</button>
+          <button class="del-btn" data-id="${escapeHtml(s.id)}" title="מחק">🗑</button>
+        </div>`;
+      }).join('');
+      area.querySelectorAll('.edit-btn').forEach(btn => btn.addEventListener('click', () => startEditSentence(btn.dataset.id)));
+      area.querySelectorAll('.del-btn').forEach(btn => btn.addEventListener('click', () => deleteSentence(btn.dataset.id)));
+    }
 
     let editingWordId = null;
 
