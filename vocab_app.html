@@ -442,6 +442,8 @@ window.startMode=function(m){
   nextQ();
 };
 window._next=function(){sIdx++;nextQ();};
+// עוטף את הקריאה החוזרת כדי שתוכל לגשת ל-mode (משתנה בתוך המודול, לא נגיש מ-onclick גלובלי ישירות)
+window.replaySameMode=function(){startMode(mode);};
 window.exitSess=function(){
   if(sTotal>0)finalizeSession(sCorrect,sTotal,mode);
   document.getElementById('prac-home').style.display='block';
@@ -659,7 +661,7 @@ function showEnd(){
     '<div class="end"><div class="big">'+(pct>=80?'🎉':pct>=60?'💪':'📚')+'</div>'+
     '<h3>סיימת סשן!</h3><p>'+sCorrect+'/'+sTotal+' נכון &nbsp;•&nbsp; '+pct+'%</p>'+
     '<button class="btn btn-p" onclick="exitSess()">חזור לתפריט</button>'+
-    '<button class="btn btn-o" style="margin-top:8px" onclick="startMode(mode)">עוד סשן 🔄</button></div>';
+    '<button class="btn btn-o" style="margin-top:8px" onclick="replaySameMode()">עוד סשן 🔄</button></div>';
 }
 
 // FLASHCARDS
