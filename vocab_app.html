@@ -185,6 +185,8 @@ import{auth,db,REDIRECTS}from"./firebase-config.js";
 import{requireRole}from"./auth-shared.js";
 
 let uid=null; // מזהה התלמיד המחובר - כל הנתונים ממוענים לפי זה
+let teacherId=null; // נלקח מהפרופיל בכניסה - נדרש לתיוג אירועי תרגול
+let currentSessionId=null; // מזהה ייחודי לכל סבב תרגול, נוצר מחדש ב-startMode
 let words=[],str={},sCorrect=0,sTotal=0,todayCnt=0;
 let sentences=[];
 const t0=Date.now();
@@ -199,6 +201,7 @@ onAuthStateChanged(auth,async(user)=>{
   catch(e){ window.location.href=REDIRECTS.login; return; }
 
   uid=user.uid;
+  teacherId=profile.teacherId||null;
   document.getElementById('greeting').textContent=`שלום ${profile.firstName||profile.displayName||''} 👋`;
   document.getElementById('auth-gate').style.display='none';
   initStreak();
@@ -235,6 +238,7 @@ function setSS(state,text){
 
 function wordsCol(){ return collection(db,'users',uid,'words'); }
 function sentencesCol(){ return collection(db,'users',uid,'sentences'); }
+function questionEventsCol(){ return collection(db,'users',uid,'questionEvents'); }
 function strengthCol(){ return collection(db,'users',uid,'strength'); }
 function sessionsCol(){ return collection(db,'users',uid,'sessions'); }
 
@@ -250,6 +254,7 @@ async function recordSessionStart(){
 }
 
 async function recordSessionEnd(correct,total,mode){
+  // legacy - נשמר כדי לא לשבור קריאות קיימות, אבל אינו מקור האמת יותר
   const duration=Math.round((Date.now()-sessionStartTime)/1000);
   try{
     await addDoc(sessionsCol(),{
@@ -261,6 +266,36 @@ async function recordSessionEnd(correct,total,mode){
       date:new Date().toLocaleDateString('he-IL'),
       dateStr:new Date().toDateString()
     });
+  }catch(e){}
+}
+
+// --- v0.4: מחזור חיים חדש ל-session, מבוסס sessionId יחיד -----------------
+// נכתב פעם אחת ב-startMode עם completed:false, ומתעדכן פעם אחת בסיום
+// (טבעי או יציאה מבוקרת) לאותו doc ID. sessionFinalized מונע כתיבה כפולה.
+async function writeSessionStart(){
+  try{
+    await setDoc(doc(db,'users',uid,'sessions',currentSessionId),{
+      sessionId:currentSessionId,
+      studentId:uid,
+      teacherId:teacherId,
+      mode,
+      startedAt:serverTimestamp(),
+      completed:false,
+      schemaVersion:2
+    });
+  }catch(e){}
+}
+async function finalizeSession(correct,total,m){
+  if(sessionFinalized)return; // כבר נסגר - מניעת כפילות
+  sessionFinalized=true;
+  const duration=Math.round((Date.now()-sessionStartTime)/1000);
+  const pct=total>0?Math.round(correct/total*100):0;
+  try{
+    await setDoc(doc(db,'users',uid,'sessions',currentSessionId),{
+      completed:true,
+      endedAt:serverTimestamp(),
+      correct,total,pct,mode:m,duration
+    },{merge:true});
   }catch(e){}
 }
 
@@ -285,6 +320,39 @@ async function saveStrength(en,val){
     const id=en.replace(/[^a-zA-Z0-9]/g,'_').slice(0,50);
     await setDoc(doc(db,'users',uid,'strength',id),{en,strength:val,updated:serverTimestamp()},{merge:true});
   }catch(e){}
+}
+
+// רישום אירוע שאלה בודדת - פונקציה משותפת לכל המשחקים (mc/fill/listen/sentence)
+// v0.4: eventId דטרמיניסטי (sessionId+מספר שאלה) עם setDoc, לא addDoc -
+// כך קריאה כפולה לאותה שאלה דורסת את אותו מסמך במקום ליצור כפילות אמיתית.
+// שדות attempts/hintsUsed/revealed הם placeholder לפיצ'ר הרמזים (שלב 2 הבא) -
+// כבר נכתבים עם ברירת מחדל כדי לא לדרוש migration נוסף כשהרמזים ייכנסו.
+async function recordQuestionResult({wordId,sentenceId,en,he,correct,strengthBefore=null,strengthAfter=null,outcome=null,responseMs=null,attempts=1,hintsUsed=0,revealed=false}){
+  try{
+    const eventId=currentSessionId+'_q'+(sIdx+1);
+    await setDoc(doc(db,'users',uid,'questionEvents',eventId),{
+      eventId,
+      sessionId:currentSessionId,
+      studentId:uid,
+      teacherId:teacherId,
+      mode,
+      wordId:wordId||null,
+      sentenceId:sentenceId||null,
+      en:en||null,
+      he:he||null,
+      questionNumber:sIdx+1,
+      correct:!!correct,
+      attempts,
+      hintsUsed,
+      revealed,
+      responseMs,
+      outcome:outcome||(correct?'independent':'incorrect'),
+      strengthBefore,
+      strengthAfter,
+      schemaVersion:2,
+      timestamp:serverTimestamp()
+    });
+  }catch(e){ /* לא חוסמים תרגול בגלל כשל בתיעוד */ }
 }
 
 function initApp(){
@@ -353,6 +421,8 @@ function speak(text){
 
 // PRACTICE
 let mode='',sWords=[],sIdx=0,cur=null,answered=false;
+let sessionFinalized=true; // true = אין סבב פעיל שצריך לסגור (מונע כתיבה כפולה)
+let questionStartedAt=0; // Date.now() בתחילת כל שאלה - לחישוב responseMs
 window.startMode=function(m){
   if(m==='sentence'){
     const candidates=sentencePool();
@@ -362,6 +432,10 @@ window.startMode=function(m){
     if(words.length<4){alert('צריך לפחות 4 מילים! לך ללשונית "מילים" והוסף עוד.');return;}
     mode=m;sWords=shuffle([...words]).slice(0,Math.min(10,words.length));
   }
+  currentSessionId=uid+'_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
+  sessionStartTime=Date.now();
+  sessionFinalized=false;
+  writeSessionStart();
   sIdx=0;sCorrect=0;sTotal=0;answered=false;
   document.getElementById('prac-home').style.display='none';
   document.getElementById('prac-session').style.display='block';
@@ -369,7 +443,7 @@ window.startMode=function(m){
 };
 window._next=function(){sIdx++;nextQ();};
 window.exitSess=function(){
-  if(sTotal>0)recordSessionEnd(sCorrect,sTotal,mode);
+  if(sTotal>0)finalizeSession(sCorrect,sTotal,mode);
   document.getElementById('prac-home').style.display='block';
   document.getElementById('prac-session').style.display='none';
 };
@@ -386,6 +460,7 @@ function nextQ(){
   else renderListen();
 }
 function renderMC(){
+  questionStartedAt=Date.now();
   const h2e=(mode==='mc-he-en');
   const q=h2e?cur.he:cur.en,a=h2e?cur.en:cur.he;
   const wrongs=shuffle(words.filter(w=>w.en!==cur.en)).slice(0,3);
@@ -399,13 +474,18 @@ function renderMC(){
 window.checkMC=function(el,chosen,ans,enWord){
   if(answered)return;answered=true;sTotal++;todayCnt++;
   const ok=(chosen===ans);
-  saveStrength(cur.en,ok?Math.min(2,(str[cur.en]||1)+1):Math.max(0,(str[cur.en]||1)-1));
+  const before=str[cur.en]||1;
+  if(ok)sCorrect++;
+  const after=ok?Math.min(2,before+1):Math.max(0,before-1);
+  saveStrength(cur.en,after);
+  recordQuestionResult({wordId:cur.id,en:cur.en,he:cur.he,correct:ok,strengthBefore:before,strengthAfter:after,outcome:ok?'independent':'incorrect',responseMs:Date.now()-questionStartedAt});
   document.querySelectorAll('.opt').forEach(o=>{if(o.textContent.trim()===ans)o.classList.add('correct');});
   if(!ok)el.classList.add('wrong');
   showFB(ok,ans);setTimeout(()=>speak(enWord),300);
-  document.getElementById('bn').style.display='block';sIdx++;
+  document.getElementById('bn').style.display='block';
 };
 function renderFill(){
+  questionStartedAt=Date.now();
   document.getElementById('sess-content').innerHTML=
     '<div class="card"><p style="font-size:12px;color:var(--muted);margin-bottom:10px">✍️ כתב באנגלית:</p>'+
     '<div style="font-size:26px;font-weight:700;margin-bottom:16px">'+cur.he+'</div>'+
@@ -417,15 +497,19 @@ function renderFill(){
 }
 window.checkFill=function(){
   if(answered)return;answered=true;sTotal++;todayCnt++;
-  const val=document.getElementById('fi').value.trim().toLowerCase();
-  const ans=cur.en.toLowerCase();
-  const ok=(val===ans)||(ans.split('/').some(p=>p.trim()===val))||(val.length>3&&ans.includes(val));
-  saveStrength(cur.en,ok?Math.min(2,(str[cur.en]||1)+1):Math.max(0,(str[cur.en]||1)-1));
+  const val=document.getElementById('fi').value;
+  const ok=isAnswerCorrect(val,cur.en);
+  const before=str[cur.en]||1;
+  if(ok)sCorrect++;
+  const after=ok?Math.min(2,before+1):Math.max(0,before-1);
+  saveStrength(cur.en,after);
+  recordQuestionResult({wordId:cur.id,en:cur.en,he:cur.he,correct:ok,strengthBefore:before,strengthAfter:after,outcome:ok?'independent':'incorrect',responseMs:Date.now()-questionStartedAt});
   document.getElementById('fi').disabled=true;
   showFB(ok,cur.en);setTimeout(()=>speak(cur.en),300);
-  document.getElementById('bn').style.display='block';sIdx++;
+  document.getElementById('bn').style.display='block';
 };
 function renderListen(){
+  questionStartedAt=Date.now();
   document.getElementById('sess-content').innerHTML=
     '<div class="card"><p style="font-size:12px;color:var(--muted);margin-bottom:12px">🎧 האזן וכתב:</p>'+
     '<button class="lbtn" onclick="speak(\''+esc(cur.en)+'\')">🔊</button>'+
@@ -438,29 +522,34 @@ function renderListen(){
 }
 window.checkListen=function(){
   if(answered)return;answered=true;sTotal++;todayCnt++;
-  const val=document.getElementById('li').value.trim().toLowerCase();
-  const ans=cur.en.toLowerCase();
-  const ok=(val===ans)||(ans.split('/').some(p=>p.trim()===val))||(val.length>3&&ans.includes(val));
-  saveStrength(cur.en,ok?Math.min(2,(str[cur.en]||1)+1):Math.max(0,(str[cur.en]||1)-1));
+  const val=document.getElementById('li').value;
+  const ok=isAnswerCorrect(val,cur.en);
+  const before=str[cur.en]||1;
+  if(ok)sCorrect++;
+  const after=ok?Math.min(2,before+1):Math.max(0,before-1);
+  saveStrength(cur.en,after);
+  recordQuestionResult({wordId:cur.id,en:cur.en,he:cur.he,correct:ok,strengthBefore:before,strengthAfter:after,outcome:ok?'independent':'incorrect',responseMs:Date.now()-questionStartedAt});
   document.getElementById('li').disabled=true;
   showFB(ok,cur.en);setTimeout(()=>speak(cur.en),300);
-  document.getElementById('bn').style.display='block';sIdx++;
+  document.getElementById('bn').style.display='block';
 };
 // SENTENCE BUILDER
 let sentTokens=[],sentBank=[],sentAnswer=[],sentAttempts=0;
 function sentencePool(){
   // מאגר משפטים: מ-sentences (חדש, יכול להיות עצמאי או מקושר) + תאימות לאחור לשדה הישן על המילה עצמה
+  // id/wordId נשמרים כאן במפורש - נדרשים לרישום אירוע שאלה יציב (לא תלוי טקסט)
   const fromCollection=sentences.filter(s=>s.text&&s.text.trim()).map(s=>{
     const w=s.wordId?words.find(x=>x.id===s.wordId):null;
-    return {text:s.text,translation:s.translation||'',wordEn:w?w.en:null,wordHe:w?w.he:null};
+    return {id:s.id,wordId:s.wordId||null,text:s.text,translation:s.translation||'',wordEn:w?w.en:null,wordHe:w?w.he:null};
   });
   const legacy=words.filter(w=>(w.sentenceEn||w.sentence)&&(w.sentenceEn||w.sentence).trim()&&!sentences.some(s=>s.wordId===w.id))
-    .map(w=>({text:w.sentenceEn||w.sentence,translation:w.sentenceHe||'',wordEn:w.en,wordHe:w.he}));
+    .map(w=>({id:null,wordId:w.id,text:w.sentenceEn||w.sentence,translation:w.sentenceHe||'',wordEn:w.en,wordHe:w.he}));
   return [...fromCollection,...legacy];
 }
 function tokenizeSentence(s){return s.trim().split(/\s+/).filter(Boolean);}
 function isRTL(s){return /[\u0590-\u05FF]/.test(s);}
 function renderSentence(){
+  questionStartedAt=Date.now();
   const target=cur.text;
   sentTokens=tokenizeSentence(target);
   sentBank=shuffle(sentTokens.map((t,i)=>({t,key:i+'_'+Math.random()})));
@@ -521,14 +610,16 @@ window.checkSentence=function(){
   const target=sentTokens.join(' ');
   const ok=built===target;
   if(ok){
-    answered=true;sTotal++;todayCnt++;
-    if(cur.wordEn)saveStrength(cur.wordEn,Math.min(2,(str[cur.wordEn]||1)+1));
+    answered=true;sTotal++;todayCnt++;sCorrect++;
+    const before=cur.wordEn?(str[cur.wordEn]||1):null;
+    const after=before!==null?Math.min(2,before+1):null;
+    if(cur.wordEn)saveStrength(cur.wordEn,after);
+    recordQuestionResult({wordId:cur.wordId,sentenceId:cur.id,en:cur.text,he:cur.translation||cur.wordHe,correct:true,strengthBefore:before,strengthAfter:after,outcome:'independent',responseMs:Date.now()-questionStartedAt});
     document.getElementById('fb').className='fb show good';
     document.getElementById('fb').innerHTML='🎉 מעולה!<br><span style="font-size:15px">'+highlightWord(cur.text,cur.wordEn)+'</span>';
     document.getElementById('sent-check').style.display='none';
     document.getElementById('sent-answer-btn').style.display='none';
     document.getElementById('bn').style.display='block';
-    sIdx++;
   }else{
     sentAttempts++;
     document.getElementById('fb').className='fb show bad';
@@ -545,13 +636,15 @@ window.checkSentence=function(){
 window.revealSentence=function(){
   if(answered)return;
   answered=true;sTotal++;todayCnt++;
-  if(cur.wordEn)saveStrength(cur.wordEn,Math.max(0,(str[cur.wordEn]||1)-1));
+  const before=cur.wordEn?(str[cur.wordEn]||1):null;
+  const after=before!==null?Math.max(0,before-1):null;
+  if(cur.wordEn)saveStrength(cur.wordEn,after);
+  recordQuestionResult({wordId:cur.wordId,sentenceId:cur.id,en:cur.text,he:cur.translation||cur.wordHe,correct:false,strengthBefore:before,strengthAfter:after,outcome:'after_reveal',revealed:true,responseMs:Date.now()-questionStartedAt});
   document.getElementById('fb').className='fb show good';
   document.getElementById('fb').innerHTML='הנה המשפט 🙂<br><span style="font-size:15px">'+highlightWord(cur.text,cur.wordEn)+'</span>';
   document.getElementById('sent-check').style.display='none';
   document.getElementById('sent-answer-btn').style.display='none';
   document.getElementById('bn').style.display='block';
-  sIdx++;
 };
 
 function showFB(ok,ans){
@@ -561,7 +654,7 @@ function showFB(ok,ans){
 }
 function showEnd(){
   const pct=sTotal>0?Math.round(sCorrect/sTotal*100):0;
-  recordSessionEnd(sCorrect,sTotal,mode);
+  finalizeSession(sCorrect,sTotal,mode);
   document.getElementById('sess-content').innerHTML=
     '<div class="end"><div class="big">'+(pct>=80?'🎉':pct>=60?'💪':'📚')+'</div>'+
     '<h3>סיימת סשן!</h3><p>'+sCorrect+'/'+sTotal+' נכון &nbsp;•&nbsp; '+pct+'%</p>'+
@@ -781,6 +874,17 @@ function renderSentencesList(){
 }
 
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+// v0.4 Stage 1: נרמול תשובה משותף ל-fill/listen - מסיר את ה-substring הרופף הישן
+function normalizeAnswer(s){
+  return String(s||'').trim().toLowerCase().replace(/\s+/g,' ');
+}
+// בודק התאמה מלאה מול ans (או כל חלופה מופרדת ב-/), אחרי נרמול משני הצדדים
+function isAnswerCorrect(userInput,answerField){
+  const val=normalizeAnswer(userInput);
+  const alts=String(answerField).split('/').map(a=>normalizeAnswer(a));
+  return alts.includes(val);
+}
 function sortWords(arr){
   const collator=new Intl.Collator('en',{sensitivity:'base'});
   return [...arr].sort((a,b)=>collator.compare((a.en||'').trim(),(b.en||'').trim()));
