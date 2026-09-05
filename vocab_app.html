@@ -44,12 +44,10 @@ input[type=text]:focus{border-color:var(--accent2)}input:disabled{opacity:.6}
 .hint-mask .revealed{color:var(--accent2);font-weight:700}
 .hint-row{display:flex;gap:8px;margin-bottom:10px}
 .hint-row .btn{margin:0;flex:1}
-.mask-space{color:var(--accent2);font-weight:700;margin:0 4px}
+.mask-space{margin:0 6px}
 #letter-bank{margin-bottom:10px}
-.help-toggle{background:transparent;border:none;color:var(--accent2);font-size:12.5px;cursor:pointer;padding:4px 0;margin-bottom:8px;text-decoration:underline}
-.help-panel{display:none;background:var(--card2);border-radius:12px;padding:12px;margin-bottom:12px}
-.help-panel.open{display:block}
-.help-panel .btn{margin-bottom:6px;font-size:13px;padding:10px}
+.help-panel{background:var(--card2);border-radius:12px;padding:12px;margin-bottom:12px;display:flex;gap:6px}
+.help-panel .btn{margin:0;font-size:12.5px;padding:10px 6px;flex:1}
 .token.wrong-flash{animation:shake .3s}
 @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
 .reveal-banner{background:var(--card2);border:1px solid var(--accent2);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:15px;text-align:center;direction:ltr}
@@ -521,14 +519,13 @@ function renderFill(){
   document.getElementById('sess-content').innerHTML=
     '<div class="card"><p style="font-size:12px;color:var(--muted);margin-bottom:10px">✍️ כתב באנגלית:</p>'+
     '<div style="font-size:26px;font-weight:700;margin-bottom:16px">'+cur.he+'</div>'+
-    '<div class="hint-mask" id="hint-mask" dir="'+dir+'" aria-live="polite">'+renderMaskLive(typingState.firstAlt,'')+'</div>'+
+    '<div class="hint-mask" id="hint-mask" dir="'+dir+'" aria-live="polite">'+renderMaskLive(typingState,'')+'</div>'+
     '<div class="reveal-banner" id="reveal-banner" style="display:none"></div>'+
     '<input type="text" id="fi" dir="'+dir+'" placeholder="Type in English..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="הקלד את המילה באנגלית">'+
     '<div class="fb" id="fb"></div>'+
-    '<button class="help-toggle" onclick="toggleHelpPanel()">צריך עזרה? 🤔</button>'+
     '<div class="help-panel" id="help-panel">'+
       '<button class="btn btn-o" onclick="useHintLetter()">חשוף אות 🔤</button>'+
-      '<button class="btn btn-o" id="open-bank-btn" onclick="openLetterBank()">פתח בנק אותיות 🧩</button>'+
+      '<button class="btn btn-o" id="open-bank-btn" onclick="openLetterBank()">בנק אותיות 🧩</button>'+
       '<button class="btn btn-o" onclick="confirmRevealAnswer()">גלה תשובה 👀</button>'+
     '</div>'+
     '<div id="bank-area"></div>'+
@@ -550,14 +547,13 @@ function renderListen(){
     '<div class="card"><p style="font-size:12px;color:var(--muted);margin-bottom:12px">🎧 האזן וכתב:</p>'+
     '<button class="lbtn" onclick="speak(\''+esc(cur.en)+'\')" aria-label="השמע שוב">🔊</button>'+
     '<div style="font-size:13px;color:var(--muted);text-align:center;margin-bottom:14px">רמז: <strong style="color:var(--text)">'+cur.he+'</strong></div>'+
-    '<div class="hint-mask" id="hint-mask" dir="'+dir+'" aria-live="polite">'+renderMaskLive(typingState.firstAlt,'')+'</div>'+
+    '<div class="hint-mask" id="hint-mask" dir="'+dir+'" aria-live="polite">'+renderMaskLive(typingState,'')+'</div>'+
     '<div class="reveal-banner" id="reveal-banner" style="display:none"></div>'+
     '<input type="text" id="li" dir="'+dir+'" placeholder="Type what you hear..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="הקלד את מה ששמעת">'+
     '<div class="fb" id="fb"></div>'+
-    '<button class="help-toggle" onclick="toggleHelpPanel()">צריך עזרה? 🤔</button>'+
     '<div class="help-panel" id="help-panel">'+
       '<button class="btn btn-o" onclick="useHintLetter()">חשוף אות 🔤</button>'+
-      '<button class="btn btn-o" id="open-bank-btn" onclick="openLetterBank()">פתח בנק אותיות 🧩</button>'+
+      '<button class="btn btn-o" id="open-bank-btn" onclick="openLetterBank()">בנק אותיות 🧩</button>'+
       '<button class="btn btn-o" onclick="confirmRevealAnswer()">גלה תשובה 👀</button>'+
     '</div>'+
     '<div id="bank-area"></div>'+
@@ -941,6 +937,7 @@ function initTypingState(answerField,inputId){
   const firstAlt=firstAlternative(answerField);
   return {
     firstAlt, inputId,
+    revealedIndices:new Set(), // מיקומי אותיות שנחשפו כ"תזכורת חזותית" (רנדומלי, לא בהכרח ברצף) - לא נכנס בפועל ל-input
     revealedLetterCount:0,
     letterBankOpened:false,
     letterBankCorrectClicks:0,
@@ -948,8 +945,7 @@ function initTypingState(answerField,inputId){
     fullAnswerRevealed:false,
     revealPenaltyApplied:false,
     bankLetters:[],
-    attempts:0,
-    helpPanelOpen:false
+    attempts:0
   };
 }
 
@@ -960,10 +956,18 @@ function longestCorrectPrefixLength(current,target){
   return i;
 }
 
-// תצוגת מסכה - נגזרת ישירות מ-input.value בכל רגע, בלי state נפרד משלה (תצוגה בלבד, לא נוגעת בערך)
-function renderMaskLive(firstAlt,currentValue){
-  return firstAlt.split('').map((ch,i)=>{
-    if(!isLetterChar(ch)) return ch===' '?'<span class="mask-space">/</span>':esc(ch);
+// מיקום "פתור" = גם אם הוקלד נכון בפועל וגם אם נחשף כרמז חזותי (גם אם עוד לא הוקלד)
+function isPositionResolved(state,i,currentValue){
+  if(state.revealedIndices.has(i)) return true;
+  return i<currentValue.length && currentValue[i] && currentValue[i].toLowerCase()===state.firstAlt[i].toLowerCase();
+}
+
+// תצוגת מסכה - משלבת שתי שכבות: מה שהוקלד נכון בפועל, ומה שנחשף כרמז (גם אם עוד לא הוקלד)
+// רווח בין מילים מקבל רק ריווח רחב יותר, בלי סימן מיוחד
+function renderMaskLive(state,currentValue){
+  return state.firstAlt.split('').map((ch,i)=>{
+    if(!isLetterChar(ch)) return ch===' '?'<span class="mask-space">&nbsp;&nbsp;</span>':esc(ch);
+    if(state.revealedIndices.has(i)) return '<span class="revealed">'+esc(ch)+'</span>';
     if(i<currentValue.length && currentValue[i] && currentValue[i].toLowerCase()===ch.toLowerCase()){
       return '<span class="revealed">'+esc(currentValue[i])+'</span>';
     }
@@ -972,29 +976,32 @@ function renderMaskLive(firstAlt,currentValue){
 }
 
 // מיישר את input.value לקידומת הנכונה האחרונה (חותך תווים שגויים בסוף), וממלא תווים קבועים
-// (רווח/מקף/אפוסטרוף) שבדרך. מחזיר את המיקום הבא שהוא אות ממתינה (או length אם המילה הושלמה).
-// קרוא רק בפעולות עזרה מפורשות (רמז/בנק) - לא בזמן הקלדה רגילה, כדי לא "לתקן" בשקט את המשתמש.
-function reconcileToNextLetterPos(target,inputEl){
+// (רווח/מקף/אפוסטרוף) שבדרך. מחזיר את המיקום הבא שהוא אות לא-פתורה (או length אם הושלם).
+// קרוא רק בפעולות עזרה מפורשות (בנק) - לא בזמן הקלדה רגילה, כדי לא "לתקן" בשקט את המשתמש.
+function reconcileToNextOpenLetterPos(state,inputEl){
   let value=inputEl.value;
-  const correctLen=longestCorrectPrefixLength(value,target);
+  const correctLen=longestCorrectPrefixLength(value,state.firstAlt);
   value=value.slice(0,correctLen);
   let i=correctLen;
-  while(i<target.length && !isLetterChar(target[i])){ value+=target[i]; i++; }
+  while(i<state.firstAlt.length && (!isLetterChar(state.firstAlt[i]) || state.revealedIndices.has(i))){
+    if(isLetterChar(state.firstAlt[i])) value=value; // אות שכבר נחשפה - לא ממלאים ל-input, רק מדלגים עליה בבדיקת "הבא הנדרש"
+    else value+=state.firstAlt[i]; // תו קבוע (רווח/מקף) - כן ממלאים
+    i++;
+  }
   inputEl.value=value;
   return i;
 }
 
 function refreshMask(){
   const el=document.getElementById('hint-mask');
-  if(el && typingState) el.innerHTML=renderMaskLive(typingState.firstAlt,document.getElementById(typingState.inputId).value);
+  if(el && typingState) el.innerHTML=renderMaskLive(typingState,document.getElementById(typingState.inputId).value);
 }
 
-// מרענן את רשימת הבנק (מסנן צ'יפים שכבר "כוסו" ע"י הקלדה/רמז ישירים, בלי לגעת ב-input) - קריאה בטוחה, read-only
+// מרענן את רשימת הבנק - מסיר צ'יפים שכבר "פתורים" (הוקלדו נכון או נחשפו כרמז), בלי לגעת ב-input
 function refreshBankList(){
   if(!typingState||!typingState.letterBankOpened)return;
   const inputEl=document.getElementById(typingState.inputId);
-  const correctLen=longestCorrectPrefixLength(inputEl.value,typingState.firstAlt);
-  typingState.bankLetters=typingState.bankLetters.filter(l=>l.idx>=correctLen);
+  typingState.bankLetters=typingState.bankLetters.filter(l=>!isPositionResolved(typingState,l.idx,inputEl.value));
   renderBankArea();
 }
 
@@ -1007,53 +1014,51 @@ function renderBankArea(){
     '</div>';
 }
 
-window.toggleHelpPanel=function(){
-  if(!typingState)return;
-  typingState.helpPanelOpen=!typingState.helpPanelOpen;
-  const panel=document.getElementById('help-panel');
-  if(panel) panel.classList.toggle('open',typingState.helpPanelOpen);
-};
-
-// רמז: חושף אות חסרה אחת בלבד, במיקום הנכון. אפשר ללחוץ שוב ושוב, בכל שלב, גם אחרי פתיחת הבנק.
+// רמז: חושף אות במיקום אקראי (לא ברצף!) מבין האותיות שעדיין לא פתורות. תזכורת חזותית בלבד -
+// לא נכנס ל-input בפועל, התלמיד עדיין צריך להקליד/ללחוץ אותה בעצמו כדי שתיספר כתשובה.
 window.useHintLetter=function(){
   if(!typingState||answered)return;
   const inputEl=document.getElementById(typingState.inputId);
-  const pos=reconcileToNextLetterPos(typingState.firstAlt,inputEl);
-  if(pos>=typingState.firstAlt.length){ refreshMask(); return; } // כבר הושלם
-  inputEl.value+=typingState.firstAlt[pos];
+  const candidates=[];
+  for(let i=0;i<typingState.firstAlt.length;i++){
+    if(isLetterChar(typingState.firstAlt[i]) && !isPositionResolved(typingState,i,inputEl.value)) candidates.push(i);
+  }
+  if(!candidates.length)return; // הכל כבר פתור
+  const pick=candidates[Math.floor(Math.random()*candidates.length)];
+  typingState.revealedIndices.add(pick);
   typingState.revealedLetterCount++;
   refreshMask();
   refreshBankList();
 };
 
-// פתיחת בנק אותיות - מציג את כל האותיות שעדיין חסרות, בסדר מעורבב. לא נפתח מחדש בלחיצות חוזרות.
+// פתיחת בנק אותיות - מציג רק אותיות שעדיין לא פתורות (לא הוקלדו נכון ולא נחשפו כרמז), בסדר מעורבב.
 window.openLetterBank=function(){
   if(!typingState||answered||typingState.letterBankOpened)return;
   const inputEl=document.getElementById(typingState.inputId);
-  const startPos=reconcileToNextLetterPos(typingState.firstAlt,inputEl);
   const letters=[];
-  for(let i=startPos;i<typingState.firstAlt.length;i++){
-    if(isLetterChar(typingState.firstAlt[i])) letters.push({char:typingState.firstAlt[i],idx:i,key:i+'_'+Math.random()});
+  for(let i=0;i<typingState.firstAlt.length;i++){
+    if(isLetterChar(typingState.firstAlt[i]) && !isPositionResolved(typingState,i,inputEl.value)){
+      letters.push({char:typingState.firstAlt[i],idx:i,key:i+'_'+Math.random()});
+    }
   }
   typingState.bankLetters=shuffle(letters);
   typingState.letterBankOpened=true;
-  refreshMask();
   renderBankArea();
 };
 
-// לחיצה על צ'יפ מהבנק - נכנס רק אם הוא בדיוק האות הבאה הנדרשת (אחרי יישור קו מחדש); אחרת נדחה בעדינות
+// לחיצה על צ'יפ מהבנק - נכנס ל-input רק אם הוא בדיוק האות ה"פתוחה" הבאה (מדלג על מיקומים שכבר נחשפו כרמז)
 window.pickBankLetter=function(key){
   if(!typingState||!typingState.letterBankOpened||answered)return;
   const chip=typingState.bankLetters.find(l=>l.key===key);
   if(!chip)return;
   const inputEl=document.getElementById(typingState.inputId);
-  const pos=reconcileToNextLetterPos(typingState.firstAlt,inputEl);
+  const pos=reconcileToNextOpenLetterPos(typingState,inputEl);
   if(pos<typingState.firstAlt.length && chip.char.toLowerCase()===typingState.firstAlt[pos].toLowerCase()){
     inputEl.value+=typingState.firstAlt[pos];
     typingState.letterBankCorrectClicks++;
     typingState.bankLetters=typingState.bankLetters.filter(l=>l.key!==key);
     refreshMask();
-    renderBankArea();
+    refreshBankList();
   }else{
     typingState.letterBankWrongClicks++;
     const chipEl=document.getElementById('chip-'+key);
@@ -1127,8 +1132,7 @@ function checkTypedCore(inputId){
       typingState.revealedLetterCount>0?'revealed_letters':'none'
   });
   document.getElementById(inputId).disabled=true;
-  const helpPanel=document.getElementById('help-panel'); if(helpPanel) helpPanel.classList.remove('open');
-  const helpToggle=document.querySelector('.help-toggle'); if(helpToggle) helpToggle.style.display='none';
+  const helpPanel=document.getElementById('help-panel'); if(helpPanel) helpPanel.style.display='none';
   showFB(true,cur.en);setTimeout(()=>speak(cur.en),300);
   document.getElementById('bn').style.display='block';
   return true;
