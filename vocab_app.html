@@ -956,21 +956,24 @@ function longestCorrectPrefixLength(current,target){
   return i;
 }
 
-// מיקום "פתור" = גם אם הוקלד נכון בפועל וגם אם נחשף כרמז חזותי (גם אם עוד לא הוקלד)
+// "הוקלד נכון בפועל" - קידומת רציפה בלבד (לא כולל רמזים!). זה מה שקובע מה עוד "חייבים" להשלים
+function isTypedCorrectly(state,i,currentValue){
+  const correctLen=longestCorrectPrefixLength(currentValue,state.firstAlt);
+  return i<correctLen;
+}
+// "פתור לצורך תצוגה/רמז הבא" = נחשף כרמז, או הוקלד נכון בפועל
 function isPositionResolved(state,i,currentValue){
-  if(state.revealedIndices.has(i)) return true;
-  return i<currentValue.length && currentValue[i] && currentValue[i].toLowerCase()===state.firstAlt[i].toLowerCase();
+  return state.revealedIndices.has(i) || isTypedCorrectly(state,i,currentValue);
 }
 
 // תצוגת מסכה - משלבת שתי שכבות: מה שהוקלד נכון בפועל, ומה שנחשף כרמז (גם אם עוד לא הוקלד)
 // רווח בין מילים מקבל רק ריווח רחב יותר, בלי סימן מיוחד
 function renderMaskLive(state,currentValue){
+  const correctLen=longestCorrectPrefixLength(currentValue,state.firstAlt);
   return state.firstAlt.split('').map((ch,i)=>{
     if(!isLetterChar(ch)) return ch===' '?'<span class="mask-space">&nbsp;&nbsp;</span>':esc(ch);
     if(state.revealedIndices.has(i)) return '<span class="revealed">'+esc(ch)+'</span>';
-    if(i<currentValue.length && currentValue[i] && currentValue[i].toLowerCase()===ch.toLowerCase()){
-      return '<span class="revealed">'+esc(currentValue[i])+'</span>';
-    }
+    if(i<correctLen) return '<span class="revealed">'+esc(currentValue[i])+'</span>';
     return '_';
   }).join(' ');
 }
@@ -978,16 +981,14 @@ function renderMaskLive(state,currentValue){
 // מיישר את input.value לקידומת הנכונה האחרונה (חותך תווים שגויים בסוף), וממלא תווים קבועים
 // (רווח/מקף/אפוסטרוף) שבדרך. מחזיר את המיקום הבא שהוא אות לא-פתורה (או length אם הושלם).
 // קרוא רק בפעולות עזרה מפורשות (בנק) - לא בזמן הקלדה רגילה, כדי לא "לתקן" בשקט את המשתמש.
+// מחזיר את המיקום הבא שבאמת צריך להיות מוקלד/מוכנס - מבוסס אך ורק על מה שבאמת הוקלד עד כה (לא על רמזים!),
+// כדי שהמילה תמיד תהיה ניתנת להשלמה במלואה, גם אם רמז "הציץ" על אות שעדיין לא הוכנסה בפועל
 function reconcileToNextOpenLetterPos(state,inputEl){
   let value=inputEl.value;
   const correctLen=longestCorrectPrefixLength(value,state.firstAlt);
   value=value.slice(0,correctLen);
   let i=correctLen;
-  while(i<state.firstAlt.length && (!isLetterChar(state.firstAlt[i]) || state.revealedIndices.has(i))){
-    if(isLetterChar(state.firstAlt[i])) value=value; // אות שכבר נחשפה - לא ממלאים ל-input, רק מדלגים עליה בבדיקת "הבא הנדרש"
-    else value+=state.firstAlt[i]; // תו קבוע (רווח/מקף) - כן ממלאים
-    i++;
-  }
+  while(i<state.firstAlt.length && !isLetterChar(state.firstAlt[i])){ value+=state.firstAlt[i]; i++; } // רק תווים קבועים מדלגים אוטומטית
   inputEl.value=value;
   return i;
 }
@@ -998,10 +999,29 @@ function refreshMask(){
 }
 
 // מרענן את רשימת הבנק - מסיר צ'יפים שכבר "פתורים" (הוקלדו נכון או נחשפו כרמז), בלי לגעת ב-input
+// גוזם את הבנק לפי כמות-אותיות בפועל שעדיין נדרשת (לא לפי idx מקורי!) - כך אותיות כפולות (n,n / t,t)
+// מטופלות נכון: אם המחרוזת כבר "כיסתה" שתי מופעים של אות מסוימת, מסירים בדיוק שני צ'יפים מאותה אות, לא יותר.
+function trimBankToNeeded(){
+  const inputEl=document.getElementById(typingState.inputId);
+  const correctLen=longestCorrectPrefixLength(inputEl.value,typingState.firstAlt);
+  const needed={};
+  for(let i=correctLen;i<typingState.firstAlt.length;i++){
+    if(isLetterChar(typingState.firstAlt[i])){
+      const ch=typingState.firstAlt[i].toLowerCase();
+      needed[ch]=(needed[ch]||0)+1;
+    }
+  }
+  const used={},kept=[];
+  for(const chip of typingState.bankLetters){
+    const ch=chip.char.toLowerCase();
+    used[ch]=used[ch]||0;
+    if(used[ch]<(needed[ch]||0)){ kept.push(chip); used[ch]++; }
+  }
+  typingState.bankLetters=kept;
+}
 function refreshBankList(){
   if(!typingState||!typingState.letterBankOpened)return;
-  const inputEl=document.getElementById(typingState.inputId);
-  typingState.bankLetters=typingState.bankLetters.filter(l=>!isPositionResolved(typingState,l.idx,inputEl.value));
+  trimBankToNeeded();
   renderBankArea();
 }
 
@@ -1037,7 +1057,7 @@ window.openLetterBank=function(){
   const inputEl=document.getElementById(typingState.inputId);
   const letters=[];
   for(let i=0;i<typingState.firstAlt.length;i++){
-    if(isLetterChar(typingState.firstAlt[i]) && !isPositionResolved(typingState,i,inputEl.value)){
+    if(isLetterChar(typingState.firstAlt[i]) && !isTypedCorrectly(typingState,i,inputEl.value)){
       letters.push({char:typingState.firstAlt[i],idx:i,key:i+'_'+Math.random()});
     }
   }
@@ -1056,9 +1076,9 @@ window.pickBankLetter=function(key){
   if(pos<typingState.firstAlt.length && chip.char.toLowerCase()===typingState.firstAlt[pos].toLowerCase()){
     inputEl.value+=typingState.firstAlt[pos];
     typingState.letterBankCorrectClicks++;
-    typingState.bankLetters=typingState.bankLetters.filter(l=>l.key!==key);
+    trimBankToNeeded();
     refreshMask();
-    refreshBankList();
+    renderBankArea();
   }else{
     typingState.letterBankWrongClicks++;
     const chipEl=document.getElementById('chip-'+key);
