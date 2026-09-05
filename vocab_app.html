@@ -44,6 +44,16 @@ input[type=text]:focus{border-color:var(--accent2)}input:disabled{opacity:.6}
 .hint-mask .revealed{color:var(--accent2);font-weight:700}
 .hint-row{display:flex;gap:8px;margin-bottom:10px}
 .hint-row .btn{margin:0;flex:1}
+.mask-space{color:var(--accent2);font-weight:700;margin:0 4px}
+#letter-bank{margin-bottom:10px}
+.help-toggle{background:transparent;border:none;color:var(--accent2);font-size:12.5px;cursor:pointer;padding:4px 0;margin-bottom:8px;text-decoration:underline}
+.help-panel{display:none;background:var(--card2);border-radius:12px;padding:12px;margin-bottom:12px}
+.help-panel.open{display:block}
+.help-panel .btn{margin-bottom:6px;font-size:13px;padding:10px}
+.token.wrong-flash{animation:shake .3s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
+.reveal-banner{background:var(--card2);border:1px solid var(--accent2);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:15px;text-align:center;direction:ltr}
+.reveal-banner b{color:var(--accent2)}
 .fb.show{display:block}.fb.good{background:#EAF4EC;border:1px solid var(--green)}.fb.bad{background:#FBEAEA;border:1px solid var(--red)}
 .sgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
 .sc{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:14px;text-align:center}
@@ -335,7 +345,8 @@ async function saveStrength(en,val){
 // כך קריאה כפולה לאותה שאלה דורסת את אותו מסמך במקום ליצור כפילות אמיתית.
 // שדות attempts/hintsUsed/revealed הם placeholder לפיצ'ר הרמזים (שלב 2 הבא) -
 // כבר נכתבים עם ברירת מחדל כדי לא לדרוש migration נוסף כשהרמזים ייכנסו.
-async function recordQuestionResult({wordId,sentenceId,en,he,correct,strengthBefore=null,strengthAfter=null,outcome=null,responseMs=null,attempts=1,hintsUsed=0,revealed=false}){
+async function recordQuestionResult({wordId,sentenceId,en,he,correct,strengthBefore=null,strengthAfter=null,outcome=null,responseMs=null,attempts=1,hintsUsed=0,revealed=false,
+  revealedLetterCount=0,letterBankOpened=false,letterBankCorrectClicks=0,letterBankWrongClicks=0,fullAnswerRevealed=false,assistanceType='none'}){
   try{
     const eventId=currentSessionId+'_q'+(sIdx+1);
     await setDoc(doc(db,'users',uid,'questionEvents',eventId),{
@@ -357,6 +368,12 @@ async function recordQuestionResult({wordId,sentenceId,en,he,correct,strengthBef
       outcome:outcome||(correct?'independent':'incorrect'),
       strengthBefore,
       strengthAfter,
+      revealedLetterCount,
+      letterBankOpened,
+      letterBankCorrectClicks,
+      letterBankWrongClicks,
+      fullAnswerRevealed,
+      assistanceType,
       schemaVersion:2,
       timestamp:serverTimestamp()
     });
@@ -499,20 +516,26 @@ window.checkMC=function(el,chosen,ans,enWord){
 };
 function renderFill(){
   questionStartedAt=Date.now();
-  typingState=initTypingState(cur.en);
+  typingState=initTypingState(cur.en,'fi');
+  const dir=isRTL(cur.en)?'rtl':'ltr';
   document.getElementById('sess-content').innerHTML=
     '<div class="card"><p style="font-size:12px;color:var(--muted);margin-bottom:10px">✍️ כתב באנגלית:</p>'+
     '<div style="font-size:26px;font-weight:700;margin-bottom:16px">'+cur.he+'</div>'+
-    '<div class="hint-mask" id="hint-mask" aria-live="polite">'+renderMaskHTML(typingState)+'</div>'+
-    '<input type="text" id="fi" placeholder="Type in English..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="הקלד את המילה באנגלית">'+
+    '<div class="hint-mask" id="hint-mask" dir="'+dir+'" aria-live="polite">'+renderMaskLive(typingState.firstAlt,'')+'</div>'+
+    '<div class="reveal-banner" id="reveal-banner" style="display:none"></div>'+
+    '<input type="text" id="fi" dir="'+dir+'" placeholder="Type in English..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="הקלד את המילה באנגלית">'+
     '<div class="fb" id="fb"></div>'+
-    '<div class="hint-row">'+
-      '<button class="btn btn-o" id="hint-btn" onclick="window.useHint()" aria-label="קבל רמז אות נוספת">רמז 💡</button>'+
-      '<button class="btn btn-o" id="reveal-btn" style="display:none" onclick="window.revealAnswerNow()">הצג תשובה</button>'+
+    '<button class="help-toggle" onclick="toggleHelpPanel()">צריך עזרה? 🤔</button>'+
+    '<div class="help-panel" id="help-panel">'+
+      '<button class="btn btn-o" onclick="useHintLetter()">חשוף אות 🔤</button>'+
+      '<button class="btn btn-o" id="open-bank-btn" onclick="openLetterBank()">פתח בנק אותיות 🧩</button>'+
+      '<button class="btn btn-o" onclick="confirmRevealAnswer()">גלה תשובה 👀</button>'+
     '</div>'+
+    '<div id="bank-area"></div>'+
     '<button class="btn btn-p" onclick="window.checkFill()">בדוק ✓</button>'+
     '<button class="btn btn-o" id="bn" style="display:none" onclick="window._next()">הבא ›</button></div>';
   document.getElementById('fi').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();answered?window._next():checkFill();}});
+  document.getElementById('fi').addEventListener('input',()=>{refreshMask();refreshBankList();});
   setTimeout(()=>document.getElementById('fi')&&document.getElementById('fi').focus(),150);
 }
 window.checkFill=function(){
@@ -521,21 +544,27 @@ window.checkFill=function(){
 };
 function renderListen(){
   questionStartedAt=Date.now();
-  typingState=initTypingState(cur.en);
+  typingState=initTypingState(cur.en,'li');
+  const dir=isRTL(cur.en)?'rtl':'ltr';
   document.getElementById('sess-content').innerHTML=
     '<div class="card"><p style="font-size:12px;color:var(--muted);margin-bottom:12px">🎧 האזן וכתב:</p>'+
     '<button class="lbtn" onclick="speak(\''+esc(cur.en)+'\')" aria-label="השמע שוב">🔊</button>'+
     '<div style="font-size:13px;color:var(--muted);text-align:center;margin-bottom:14px">רמז: <strong style="color:var(--text)">'+cur.he+'</strong></div>'+
-    '<div class="hint-mask" id="hint-mask" aria-live="polite">'+renderMaskHTML(typingState)+'</div>'+
-    '<input type="text" id="li" placeholder="Type what you hear..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="הקלד את מה ששמעת">'+
+    '<div class="hint-mask" id="hint-mask" dir="'+dir+'" aria-live="polite">'+renderMaskLive(typingState.firstAlt,'')+'</div>'+
+    '<div class="reveal-banner" id="reveal-banner" style="display:none"></div>'+
+    '<input type="text" id="li" dir="'+dir+'" placeholder="Type what you hear..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" aria-label="הקלד את מה ששמעת">'+
     '<div class="fb" id="fb"></div>'+
-    '<div class="hint-row">'+
-      '<button class="btn btn-o" id="hint-btn" onclick="window.useHint()" aria-label="קבל רמז אות נוספת">רמז 💡</button>'+
-      '<button class="btn btn-o" id="reveal-btn" style="display:none" onclick="window.revealAnswerNow()">הצג תשובה</button>'+
+    '<button class="help-toggle" onclick="toggleHelpPanel()">צריך עזרה? 🤔</button>'+
+    '<div class="help-panel" id="help-panel">'+
+      '<button class="btn btn-o" onclick="useHintLetter()">חשוף אות 🔤</button>'+
+      '<button class="btn btn-o" id="open-bank-btn" onclick="openLetterBank()">פתח בנק אותיות 🧩</button>'+
+      '<button class="btn btn-o" onclick="confirmRevealAnswer()">גלה תשובה 👀</button>'+
     '</div>'+
+    '<div id="bank-area"></div>'+
     '<button class="btn btn-p" onclick="window.checkListen()">בדוק ✓</button>'+
     '<button class="btn btn-o" id="bn" style="display:none" onclick="window._next()">הבא ›</button></div>';
   document.getElementById('li').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();answered?window._next():checkListen();}});
+  document.getElementById('li').addEventListener('input',()=>{refreshMask();refreshBankList();});
   setTimeout(()=>speak(cur.en),400);
 }
 window.checkListen=function(){
@@ -902,82 +931,157 @@ function firstAlternative(answerField){
   return String(answerField).split('/')[0].trim();
 }
 
-// יוצר מצב שאלת הקלדה חדש - נקרא מ-renderFill/renderListen בתחילת כל שאלה
-function initTypingState(answerField){
+// === Feature 1A v2: עזרה לא-לינארית - חשיפת אותיות + בנק אותיות עצמאיים ===
+// עקרון מרכזי: input.value הוא תמיד מקור האמת היחיד. פעולות עזרה (רמז/בנק)
+// "מיישרות קו" עם התשובה הנכונה לפני שהן ממשיכות - כך שהקלדה/רמז/בנק תמיד מתואמים.
+
+function isLetterChar(ch){ return /\p{L}/u.test(ch); } // תומך גם באנגלית וגם בעברית
+
+function initTypingState(answerField,inputId){
   const firstAlt=firstAlternative(answerField);
-  const letterCount=(firstAlt.match(/[a-zA-Z]/g)||[]).length;
   return {
-    firstAlt,
-    revealedIndices:new Set(),
-    hintsUsed:0,
-    maxHints: letterCount<=3 ? 1 : 2, // מילים קצרות (עד 3 אותיות) - רמז חלקי אחד בלבד
+    firstAlt, inputId,
+    revealedLetterCount:0,
+    letterBankOpened:false,
+    letterBankCorrectClicks:0,
+    letterBankWrongClicks:0,
+    fullAnswerRevealed:false,
+    revealPenaltyApplied:false,
+    bankLetters:[],
     attempts:0,
-    revealed:false,
-    revealPenaltyApplied:false
+    helpPanelOpen:false
   };
 }
 
-// בונה את תצוגת המסכה: אותיות מוסתרות כקו תחתון, רווח/מקף/אפוסטרוף גלויים תמיד ולא נספרים כרמז
-function renderMaskHTML(state){
-  return state.firstAlt.split('').map((ch,i)=>{
-    if(/[a-zA-Z]/.test(ch)){
-      return state.revealedIndices.has(i) ? '<span class="revealed">'+esc(ch)+'</span>' : '_';
+// אורך הקידומת התואמת במדויק בין מה שהוקלד לבין התשובה הנכונה (case-insensitive)
+function longestCorrectPrefixLength(current,target){
+  let i=0;
+  while(i<current.length && i<target.length && current[i].toLowerCase()===target[i].toLowerCase()) i++;
+  return i;
+}
+
+// תצוגת מסכה - נגזרת ישירות מ-input.value בכל רגע, בלי state נפרד משלה (תצוגה בלבד, לא נוגעת בערך)
+function renderMaskLive(firstAlt,currentValue){
+  return firstAlt.split('').map((ch,i)=>{
+    if(!isLetterChar(ch)) return ch===' '?'<span class="mask-space">/</span>':esc(ch);
+    if(i<currentValue.length && currentValue[i] && currentValue[i].toLowerCase()===ch.toLowerCase()){
+      return '<span class="revealed">'+esc(currentValue[i])+'</span>';
     }
-    return esc(ch); // רווח/מקף/אפוסטרוף - גלוי מהתחלה, לא אות מוסתרת
+    return '_';
   }).join(' ');
 }
 
-// חושף אות אחת - הראשונה בלחיצת רמז ראשונה, אות פנימית שימושית בלחיצה שנייה (דטרמיניסטי)
-function revealNextHintLetter(state){
-  const letterIndices=[];
-  for(let i=0;i<state.firstAlt.length;i++){ if(/[a-zA-Z]/.test(state.firstAlt[i])) letterIndices.push(i); }
-  if(state.hintsUsed===0){
-    state.revealedIndices.add(letterIndices[0]); // אות ראשונה
-  }else{
-    const remaining=letterIndices.filter(i=>!state.revealedIndices.has(i));
-    if(remaining.length) state.revealedIndices.add(remaining[Math.floor(remaining.length/2)]); // אות פנימית, דטרמיניסטי
-  }
-  state.hintsUsed++;
+// מיישר את input.value לקידומת הנכונה האחרונה (חותך תווים שגויים בסוף), וממלא תווים קבועים
+// (רווח/מקף/אפוסטרוף) שבדרך. מחזיר את המיקום הבא שהוא אות ממתינה (או length אם המילה הושלמה).
+// קרוא רק בפעולות עזרה מפורשות (רמז/בנק) - לא בזמן הקלדה רגילה, כדי לא "לתקן" בשקט את המשתמש.
+function reconcileToNextLetterPos(target,inputEl){
+  let value=inputEl.value;
+  const correctLen=longestCorrectPrefixLength(value,target);
+  value=value.slice(0,correctLen);
+  let i=correctLen;
+  while(i<target.length && !isLetterChar(target[i])){ value+=target[i]; i++; }
+  inputEl.value=value;
+  return i;
 }
 
-function revealAllLetters(state){
-  for(let i=0;i<state.firstAlt.length;i++){ if(/[a-zA-Z]/.test(state.firstAlt[i])) state.revealedIndices.add(i); }
+function refreshMask(){
+  const el=document.getElementById('hint-mask');
+  if(el && typingState) el.innerHTML=renderMaskLive(typingState.firstAlt,document.getElementById(typingState.inputId).value);
 }
 
-// מעדכן את תצוגת המסכה וניראות כפתורי רמז/הצג-תשובה - קרוא אחרי כל שינוי במצב
-function updateHintUI(){
-  const maskEl=document.getElementById('hint-mask');
-  if(maskEl) maskEl.innerHTML=renderMaskHTML(typingState);
-  const hintBtn=document.getElementById('hint-btn');
-  const revealBtn=document.getElementById('reveal-btn');
-  if(hintBtn) hintBtn.style.display=(typingState.hintsUsed<typingState.maxHints&&!typingState.revealed)?'inline-block':'none';
-  if(revealBtn) revealBtn.style.display=(typingState.hintsUsed>=typingState.maxHints&&!typingState.revealed)?'inline-block':'none';
+// מרענן את רשימת הבנק (מסנן צ'יפים שכבר "כוסו" ע"י הקלדה/רמז ישירים, בלי לגעת ב-input) - קריאה בטוחה, read-only
+function refreshBankList(){
+  if(!typingState||!typingState.letterBankOpened)return;
+  const inputEl=document.getElementById(typingState.inputId);
+  const correctLen=longestCorrectPrefixLength(inputEl.value,typingState.firstAlt);
+  typingState.bankLetters=typingState.bankLetters.filter(l=>l.idx>=correctLen);
+  renderBankArea();
 }
 
-window.useHint=function(){
-  if(!typingState||typingState.revealed||answered)return;
-  if(typingState.hintsUsed>=typingState.maxHints)return;
-  revealNextHintLetter(typingState);
-  updateHintUI();
+function renderBankArea(){
+  const area=document.getElementById('bank-area');
+  if(!area)return;
+  if(!typingState.letterBankOpened){ area.innerHTML=''; return; }
+  area.innerHTML='<div class="token-bank" id="letter-bank">'+
+    typingState.bankLetters.map(l=>'<span class="token" id="chip-'+l.key+'" onclick="pickBankLetter(\''+l.key+'\')">'+esc(l.char)+'</span>').join('')+
+    '</div>';
+}
+
+window.toggleHelpPanel=function(){
+  if(!typingState)return;
+  typingState.helpPanelOpen=!typingState.helpPanelOpen;
+  const panel=document.getElementById('help-panel');
+  if(panel) panel.classList.toggle('open',typingState.helpPanelOpen);
 };
 
-window.revealAnswerNow=function(){
-  if(!typingState||answered||typingState.revealed)return;
-  typingState.revealed=true;
-  revealAllLetters(typingState);
+// רמז: חושף אות חסרה אחת בלבד, במיקום הנכון. אפשר ללחוץ שוב ושוב, בכל שלב, גם אחרי פתיחת הבנק.
+window.useHintLetter=function(){
+  if(!typingState||answered)return;
+  const inputEl=document.getElementById(typingState.inputId);
+  const pos=reconcileToNextLetterPos(typingState.firstAlt,inputEl);
+  if(pos>=typingState.firstAlt.length){ refreshMask(); return; } // כבר הושלם
+  inputEl.value+=typingState.firstAlt[pos];
+  typingState.revealedLetterCount++;
+  refreshMask();
+  refreshBankList();
+};
+
+// פתיחת בנק אותיות - מציג את כל האותיות שעדיין חסרות, בסדר מעורבב. לא נפתח מחדש בלחיצות חוזרות.
+window.openLetterBank=function(){
+  if(!typingState||answered||typingState.letterBankOpened)return;
+  const inputEl=document.getElementById(typingState.inputId);
+  const startPos=reconcileToNextLetterPos(typingState.firstAlt,inputEl);
+  const letters=[];
+  for(let i=startPos;i<typingState.firstAlt.length;i++){
+    if(isLetterChar(typingState.firstAlt[i])) letters.push({char:typingState.firstAlt[i],idx:i,key:i+'_'+Math.random()});
+  }
+  typingState.bankLetters=shuffle(letters);
+  typingState.letterBankOpened=true;
+  refreshMask();
+  renderBankArea();
+};
+
+// לחיצה על צ'יפ מהבנק - נכנס רק אם הוא בדיוק האות הבאה הנדרשת (אחרי יישור קו מחדש); אחרת נדחה בעדינות
+window.pickBankLetter=function(key){
+  if(!typingState||!typingState.letterBankOpened||answered)return;
+  const chip=typingState.bankLetters.find(l=>l.key===key);
+  if(!chip)return;
+  const inputEl=document.getElementById(typingState.inputId);
+  const pos=reconcileToNextLetterPos(typingState.firstAlt,inputEl);
+  if(pos<typingState.firstAlt.length && chip.char.toLowerCase()===typingState.firstAlt[pos].toLowerCase()){
+    inputEl.value+=typingState.firstAlt[pos];
+    typingState.letterBankCorrectClicks++;
+    typingState.bankLetters=typingState.bankLetters.filter(l=>l.key!==key);
+    refreshMask();
+    renderBankArea();
+  }else{
+    typingState.letterBankWrongClicks++;
+    const chipEl=document.getElementById('chip-'+key);
+    if(chipEl){ chipEl.classList.add('wrong-flash'); setTimeout(()=>chipEl.classList.remove('wrong-flash'),300); }
+  }
+};
+
+// גלה תשובה - אישור קצר, ואז מציג את המילה המלאה כבאנר נפרד (לא בתוך ה-input), ומאפס את הניסיון להמשך עבודה עצמאית
+window.confirmRevealAnswer=function(){
+  if(!typingState||answered||typingState.fullAnswerRevealed)return;
+  if(!confirm('להציג את התשובה המלאה?'))return;
+  typingState.fullAnswerRevealed=true;
   if(!typingState.revealPenaltyApplied){
     typingState.revealPenaltyApplied=true;
     typingState.revealStrengthBefore=str[cur.en]||1;
     typingState.revealStrengthAfter=Math.max(0,typingState.revealStrengthBefore-1);
     saveStrength(cur.en,typingState.revealStrengthAfter);
   }
-  updateHintUI();
-  const fb=document.getElementById('fb');
-  fb.className='fb show bad';
-  fb.innerHTML='הנה התשובה — עכשיו תקליד אותה בעצמך כדי להמשיך 🙂';
+  const banner=document.getElementById('reveal-banner');
+  if(banner){ banner.innerHTML='התשובה: <b>'+esc(typingState.firstAlt)+'</b>'; banner.style.display='block'; }
+  const inputEl=document.getElementById(typingState.inputId);
+  inputEl.value='';
+  refreshMask();
+  refreshBankList();
+  inputEl.focus();
 };
 
-// פונקציית בדיקה משותפת ל-fill/listen - מחליטה על retry/hint/reveal/outcome ורושמת אירוע אחיד
+// פונקציית בדיקה משותפת ל-fill/listen - מסווגת נכון/רטרai/עזרה/חשיפה ורושמת אירוע אחיד
 function checkTypedCore(inputId){
   const val=document.getElementById(inputId).value;
   const ok=isAnswerCorrect(val,cur.en);
@@ -990,25 +1094,41 @@ function checkTypedCore(inputId){
   }
   answered=true;sTotal++;todayCnt++;sCorrect++;
   let outcome,before,after;
-  if(typingState.revealed){
-    outcome='after_reveal';
-    before=typingState.revealStrengthBefore;
-    after=typingState.revealStrengthAfter;
+  if(typingState.fullAnswerRevealed){
+    outcome='revealed_then_correct';
+    before=typingState.revealStrengthBefore;after=typingState.revealStrengthAfter;
     sessRevealedAnswers++;
-  }else if(typingState.hintsUsed>0){
-    outcome='with_hint';
-    before=str[cur.en]||1;after=before; // ניטרלי - לא מקדם strength
-    sessHintedCorrect++;sessHintsUsed+=typingState.hintsUsed;
+  }else if(typingState.letterBankOpened){
+    outcome='assisted_correct'; // גם שילוב רמז+בנק מסווג כך, לפי המפרט
+    before=str[cur.en]||1;after=before; // ניטרלי - הסולם (0/1/2) לא מאפשר הבחנה עדינה יותר מ"רמז" בלי הרחבתו
+    sessHintedCorrect++;sessHintsUsed+=typingState.revealedLetterCount;
+  }else if(typingState.revealedLetterCount>0){
+    outcome='hinted_correct';
+    before=str[cur.en]||1;after=before; // ניטרלי
+    sessHintedCorrect++;sessHintsUsed+=typingState.revealedLetterCount;
   }else{
-    outcome=typingState.attempts>1?'after_retry':'independent';
+    outcome=typingState.attempts>1?'after_retry':'independent_correct';
     before=str[cur.en]||1;after=Math.min(2,before+1);
     saveStrength(cur.en,after);
     sessIndependentCorrect++;
   }
-  recordQuestionResult({wordId:cur.id,en:cur.en,he:cur.he,correct:true,strengthBefore:before,strengthAfter:after,outcome,attempts:typingState.attempts,hintsUsed:typingState.hintsUsed,revealed:typingState.revealed,responseMs:Date.now()-questionStartedAt});
+  recordQuestionResult({
+    wordId:cur.id,en:cur.en,he:cur.he,correct:true,strengthBefore:before,strengthAfter:after,outcome,
+    attempts:typingState.attempts,hintsUsed:typingState.revealedLetterCount,revealed:typingState.fullAnswerRevealed,
+    responseMs:Date.now()-questionStartedAt,
+    revealedLetterCount:typingState.revealedLetterCount,
+    letterBankOpened:typingState.letterBankOpened,
+    letterBankCorrectClicks:typingState.letterBankCorrectClicks,
+    letterBankWrongClicks:typingState.letterBankWrongClicks,
+    fullAnswerRevealed:typingState.fullAnswerRevealed,
+    assistanceType: typingState.fullAnswerRevealed?'full_answer':
+      (typingState.revealedLetterCount>0&&typingState.letterBankOpened)?'combined':
+      typingState.letterBankOpened?'letter_bank':
+      typingState.revealedLetterCount>0?'revealed_letters':'none'
+  });
   document.getElementById(inputId).disabled=true;
-  document.getElementById('hint-btn')&&(document.getElementById('hint-btn').style.display='none');
-  document.getElementById('reveal-btn')&&(document.getElementById('reveal-btn').style.display='none');
+  const helpPanel=document.getElementById('help-panel'); if(helpPanel) helpPanel.classList.remove('open');
+  const helpToggle=document.querySelector('.help-toggle'); if(helpToggle) helpToggle.style.display='none';
   showFB(true,cur.en);setTimeout(()=>speak(cur.en),300);
   document.getElementById('bn').style.display='block';
   return true;
